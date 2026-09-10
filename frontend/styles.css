@@ -197,8 +197,9 @@ textarea { resize: vertical; min-height: 120px; }
 .set-aside-toggle { padding: 6px 12px; font-size: 12px; }
 .set-aside-toggle.active { background: var(--blue); border-color: var(--blue); color: #fff; }
 .paper-row.set-aside { opacity: .55; }
-.paper-title-row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.paper-title-row h3 { margin-bottom: 0; }
+.paper-title-row { display: flex; align-items: flex-start; gap: 12px; }
+.paper-title-row h3 { flex: 1; min-width: 0; margin-bottom: 0; }
+.paper-title-row .access-pill { flex-shrink: 0; margin-top: 3px; }
 .access-pill { font-size: 10px; letter-spacing: .3px; text-transform: uppercase; border-radius: 10px; padding: 2px 8px; white-space: nowrap; }
 .access-open_access { color: #1f7a4d; background: #e3f5ec; }
 .access-abstract_only { color: #7a5a1f; background: #f6efe0; }
