@@ -160,10 +160,9 @@ textarea { resize: vertical; min-height: 120px; }
 .search-status { color: #4265c3; font-size: 12px; }
 .search-failure { color: #a34f59; font-size: 12px; }
 .cluster-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 22px; }
-.cluster-tab { background: #eef2ff; border: none; font: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px; color: #111936; }
-.cluster-tab:hover { background: #e1e7ff; }
-.cluster-tab.active { background: var(--blue); color: #fff; }
-.cluster-tab .count { background: #fff; }
+.cluster-tab { background: none; border: 1px solid var(--border); font: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; padding: 6px 13px; border-radius: 999px; color: var(--muted); }
+.cluster-tab:hover { border-color: var(--blue); color: #111936; }
+.cluster-tab.active { background: var(--blue); border-color: var(--blue); color: #fff; }
 .cluster-tab.active .count { background: rgba(255, 255, 255, .22); color: #fff; }
 .search-history { font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); padding-top: 12px; }
 .search-history summary { cursor: pointer; }
