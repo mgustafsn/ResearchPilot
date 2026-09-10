@@ -297,19 +297,23 @@ function literature(project, left, aside, actions, remove) {
     }
     const tabRow = element('div', '', papersBody, 'cluster-tabs');
     const list = element('div', '', papersBody);
+    let active = null;
     const buttons = groups.map(([name, members], index) => {
       const button = element('button', '', tabRow, 'cluster-tab');
       element('span', name, button);
       element('span', String(members.length), button, 'count');
-      button.addEventListener('click', () => select(index));
+      button.addEventListener('click', () => {
+        active = active === index ? null : index;
+        buttons.forEach((other, i) => other.classList.toggle('active', i === active));
+        render();
+      });
       return button;
     });
-    function select(index) {
-      buttons.forEach((button, i) => button.classList.toggle('active', i === index));
+    function render() {
       list.replaceChildren();
-      for (const paper of groups[index][1]) paperRow(paper, list);
+      for (const paper of active === null ? papers : groups[active][1]) paperRow(paper, list);
     }
-    select(0);
+    render();
   }
   function paperRow(paper, parent) {
     const row = element('article', '', parent, 'project-row paper-row');

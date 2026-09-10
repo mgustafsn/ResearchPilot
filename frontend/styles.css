@@ -159,10 +159,12 @@ textarea { resize: vertical; min-height: 120px; }
 .search-query { overflow-wrap: anywhere; white-space: pre-wrap; font-size: 12px; padding: 10px; background: #f5f8fc; border-radius: 6px; margin: 5px 0 14px; }
 .search-status { color: #4265c3; font-size: 12px; }
 .search-failure { color: #a34f59; font-size: 12px; }
-.cluster-tabs { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
-.cluster-tab { background: none; border: none; font: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 9px; padding: 12px 20px; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
-.cluster-tab:hover { color: #111936; }
-.cluster-tab.active { color: var(--blue); border-bottom-color: var(--blue); font-weight: 500; }
+.cluster-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 22px; }
+.cluster-tab { background: #eef2ff; border: none; font: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px; color: #111936; }
+.cluster-tab:hover { background: #e1e7ff; }
+.cluster-tab.active { background: var(--blue); color: #fff; }
+.cluster-tab .count { background: #fff; }
+.cluster-tab.active .count { background: rgba(255, 255, 255, .22); color: #fff; }
 .search-history { font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); padding-top: 12px; }
 .search-history summary { cursor: pointer; }
 .search-history-item { padding: 12px 0; border-bottom: 1px solid var(--border); }
