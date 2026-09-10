@@ -230,11 +230,133 @@ function detail(project) {
   note(aside, 'Good research takes shape', 'Your project keeps the starting point of your research in focus. Revisit your question and refine it as your thinking develops.');
   const management = element('div', '', aside, 'project-management');
   const remove = element('button', 'Delete project', management, 'danger');
+  literature(project, left, aside, actions, remove);
   remove.addEventListener('click', async () => {
     if (!confirm(`Delete “${project.title}”? This cannot be undone.`)) return;
     remove.disabled = true;
     try { await api(`/${project.id}`, {method: 'DELETE'}); location.href = '/'; }
     catch (error) { showError(error); remove.disabled = false; }
+  });
+}
+function literature(project, left, aside, actions, remove) {
+  const searchButton = element('button', 'Find papers', actions);
+  searchButton.prepend(icon('search'));
+  const papersPanel = panel(left, 'Papers', 'document');
+  left.insertBefore(papersPanel, left.children[1]);
+  const papersBody = element('div', '', papersPanel);
+  const searchPanel = panel(aside, 'Literature search', 'search');
+  aside.prepend(searchPanel);
+  const searchBody = element('div', '', searchPanel);
+  element('p', 'Loading saved papers…', papersBody, 'muted');
+  let busy = false;
+  let timer;
+  let displayedRunId;
+  const projectPath = `/${project.id}`;
+  const editLink = actions.querySelector('a');
+  editLink.classList.add('secondary');
+  function setBusy(value) {
+    busy = value;
+    searchButton.disabled = value;
+    searchButton.textContent = value ? 'Searching OpenAlex…' : 'Find papers';
+    if (!value) searchButton.prepend(icon('search'));
+    remove.disabled = value;
+    editLink.setAttribute('aria-disabled', String(value));
+  }
+  editLink.addEventListener('click', event => { if (busy) event.preventDefault(); });
+  function showPapers(papers, history) {
+    papersBody.replaceChildren();
+    papersPanel.querySelector('h2').textContent = `Papers (${papers.length})`;
+    const completed = history.find(run => run.status === 'COMPLETED');
+    if (completed) {
+      const p = completed.parameters;
+      const changed = p.query !== project.researchQuestion || p.yearFrom !== project.yearFrom
+        || p.yearTo !== project.yearTo || p.maxPaperCount !== (project.maxPaperCount ?? 100);
+      element('p', changed
+        ? 'These results use earlier project details. Run a new search to update them.'
+        : `Retrieved from ${completed.provider} on ${date(completed.finishedAt)}.`, papersBody, 'field-help');
+      if (completed.skippedCount) element('p', `${completed.skippedCount} provider records could not be normalized.`, papersBody, 'field-help');
+    }
+    if (!papers.length) {
+      const empty = element('div', '', papersBody, 'empty-state');
+      empty.append(icon('search'));
+      element('h3', completed ? 'No papers matched this search' : 'Explore the literature', empty);
+      element('p', completed ? 'Try a shorter research topic or a wider year range.'
+        : 'Find real scholarly papers from OpenAlex using your research question.', empty, 'muted');
+      return;
+    }
+    for (const paper of papers) {
+      const row = element('article', '', papersBody, 'project-row paper-row');
+      element('h3', paper.title || 'Title unavailable', row);
+      const authors = paper.authors.map(author => author.name).filter(Boolean);
+      const authorLabel = authors.length ? authors.slice(0, 3).join(', ') + (authors.length > 3 ? ' et al.' : '') : 'Authors unavailable';
+      element('p', `${authorLabel} · ${paper.publicationYear ?? 'Year unavailable'}`, row, 'paper-metadata');
+      if (paper.venue) element('p', paper.venue, row, 'paper-metadata');
+      if (paper.doi) element('p', `DOI: ${paper.doi}`, row, 'paper-doi');
+      const footer = element('div', '', row, 'project-meta');
+      element('span', `Citations: ${paper.citationCount ?? 'Unavailable'} · ${paper.source}`, footer);
+      const source = link('View source', paper.sourceUrl, footer, 'open-link');
+      source.target = '_blank';
+      source.rel = 'noopener noreferrer';
+      source.append(icon('arrow'));
+    }
+  }
+  function showSearch(history) {
+    searchBody.replaceChildren();
+    const latest = history[0];
+    setBusy(latest?.status === 'SEARCHING');
+    element('p', 'OpenAlex searches your research question with the saved year range. Keywords remain project notes.', searchBody, 'field-help');
+    element('span', 'Search query', searchBody, 'query-label');
+    element('p', latest?.parameters.query ?? project.researchQuestion, searchBody, 'search-query');
+    if (!latest) {
+      element('p', 'No search has been run yet.', searchBody, 'muted');
+      return;
+    }
+    element('p', busy ? 'Searching scholarly papers…'
+      : latest.status === 'FAILED' ? latest.errorMessage
+      : `${latest.paperCount} papers saved · ${latest.totalFound.toLocaleString()} matches in OpenAlex`,
+      searchBody, latest.status === 'FAILED' ? 'search-failure' : 'search-status');
+    if (latest.status === 'FAILED' && history.some(run => run.status === 'COMPLETED')) {
+      element('p', 'Results from your last successful search are still available.', searchBody, 'field-help');
+    }
+    const recent = element('details', '', searchBody, 'search-history');
+    element('summary', 'Recent searches', recent);
+    for (const run of history.slice(0, 5)) {
+      const item = element('div', '', recent, 'search-history-item');
+      element('strong', `${date(run.startedAt)} · ${run.status.toLowerCase()}`, item);
+      element('p', run.parameters.query, item);
+      element('small', `${yearRange(run.parameters)} · Limit ${run.parameters.maxPaperCount}`, item);
+    }
+  }
+  async function refresh() {
+    clearTimeout(timer);
+    const history = await api(`${projectPath}/searches`);
+    showSearch(history);
+    const latestId = history[0]?.id ?? null;
+    if (!busy || displayedRunId === undefined) {
+      const papers = await api(`${projectPath}/papers`);
+      showPapers(papers, history);
+      displayedRunId = latestId;
+    }
+    if (busy) timer = setTimeout(() => refresh().catch(showError), 2000);
+  }
+  searchButton.addEventListener('click', async () => {
+    clearTimeout(timer);
+    setBusy(true);
+    errorBox.hidden = true;
+    searchBody.replaceChildren();
+    element('p', 'Searching OpenAlex. This can take up to a minute…', searchBody, 'search-status');
+    try {
+      await api(`${projectPath}/search`, {method: 'POST'});
+    } catch (error) { showError(error); }
+    finally {
+      setBusy(false);
+      try { await refresh(); } catch (error) { showError(error); }
+    }
+  });
+  refresh().catch(error => {
+    papersBody.replaceChildren();
+    element('p', 'Unable to load saved papers. Refresh to try again.', papersBody, 'muted');
+    showError(error);
   });
 }
 async function render() {

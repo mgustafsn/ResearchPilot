@@ -1,37 +1,12 @@
-import os
-from pathlib import Path
 from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 
 from researchpilot.api import create_app
 from researchpilot.domain import ProjectInput
-from researchpilot.persistence import Base
-
-
-@pytest.fixture
-def engine(tmp_path):
-    url = os.environ.get("TEST_DATABASE_URL")
-    engine = create_engine(url or f"sqlite:///{tmp_path / 'test.db'}")
-    if url:
-        with engine.begin() as conn:
-            conn.exec_driver_sql(
-                (Path(__file__).parents[2] / "migrations/001_projects.sql").read_text()
-            )
-    else:
-        Base.metadata.create_all(engine)
-    yield engine
-    Base.metadata.drop_all(engine)
-    engine.dispose()
-
-
-@pytest.fixture
-def client(engine):
-    with TestClient(create_app(engine)) as client:
-        yield client
 
 
 DATA = {
@@ -130,7 +105,7 @@ def test_pages(client):
 
 def test_database_failure(client, engine):
     with engine.begin() as conn:
-        conn.execute(text("DROP TABLE research_projects"))
+        conn.execute(text("ALTER TABLE research_projects RENAME COLUMN title TO missing_title"))
     response = client.get("/api/projects")
     assert response.status_code == 503
     assert response.json() == {"detail": "Database unavailable. Try again."}

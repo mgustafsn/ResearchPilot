@@ -1,0 +1,983 @@
+{
+  "id": "https://openalex.org/W4402665833",
+  "title": "Large Language Models for Software Engineering: A Systematic Literature Review",
+  "doi": "https://doi.org/10.1145/3695988",
+  "publication_year": 2024,
+  "publication_date": "2024-09-20",
+  "cited_by_count": 855,
+  "authorships": [
+    {
+      "author_position": "first",
+      "author": {
+        "id": "https://openalex.org/A5065658217",
+        "display_name": "Xinyi Hou",
+        "orcid": "https://orcid.org/0009-0005-9965-2109"
+      },
+      "institutions": [
+        {
+          "id": "https://openalex.org/I47720641",
+          "display_name": "Huazhong University of Science and Technology",
+          "ror": "https://ror.org/00p991c53",
+          "country_code": "CN",
+          "type": "education",
+          "lineage": [
+            "https://openalex.org/I47720641"
+          ]
+        }
+      ],
+      "countries": [
+        "CN"
+      ],
+      "is_corresponding": false,
+      "raw_author_name": "Xinyi Hou",
+      "raw_affiliation_strings": [
+        "Huazhong University of Science and Technology, Wuhan, China",
+        "Huazhong University of Science and Technology, China"
+      ],
+      "raw_orcid": null,
+      "affiliations": [
+        {
+          "raw_affiliation_string": "Huazhong University of Science and Technology, Wuhan, China",
+          "institution_ids": [
+            "https://openalex.org/I47720641"
+          ]
+        },
+        {
+          "raw_affiliation_string": "Huazhong University of Science and Technology, China",
+          "institution_ids": [
+            "https://openalex.org/I47720641"
+          ]
+        }
+      ]
+    },
+    {
+      "author_position": "middle",
+      "author": {
+        "id": "https://openalex.org/A5023970004",
+        "display_name": "Yanjie Zhao",
+        "orcid": "https://orcid.org/0000-0001-8793-5367"
+      },
+      "institutions": [
+        {
+          "id": "https://openalex.org/I47720641",
+          "display_name": "Huazhong University of Science and Technology",
+          "ror": "https://ror.org/00p991c53",
+          "country_code": "CN",
+          "type": "education",
+          "lineage": [
+            "https://openalex.org/I47720641"
+          ]
+        }
+      ],
+      "countries": [
+        "CN"
+      ],
+      "is_corresponding": false,
+      "raw_author_name": "Yanjie Zhao",
+      "raw_affiliation_strings": [
+        "Huazhong University of Science and Technology, Wuhan, China",
+        "Huazhong University of Science and Technology, China"
+      ],
+      "raw_orcid": null,
+      "affiliations": [
+        {
+          "raw_affiliation_string": "Huazhong University of Science and Technology, Wuhan, China",
+          "institution_ids": [
+            "https://openalex.org/I47720641"
+          ]
+        },
+        {
+          "raw_affiliation_string": "Huazhong University of Science and Technology, China",
+          "institution_ids": [
+            "https://openalex.org/I47720641"
+          ]
+        }
+      ]
+    },
+    {
+      "author_position": "middle",
+      "author": {
+        "id": "https://openalex.org/A5100320074",
+        "display_name": "Yue Liu",
+        "orcid": "https://orcid.org/0000-0002-5593-5917"
+      },
+      "institutions": [
+        {
+          "id": "https://openalex.org/I56590836",
+          "display_name": "Monash University",
+          "ror": "https://ror.org/02bfwt286",
+          "country_code": "AU",
+          "type": "education",
+          "lineage": [
+            "https://openalex.org/I56590836"
+          ]
+        }
+      ],
+      "countries": [
+        "AU"
+      ],
+      "is_corresponding": false,
+      "raw_author_name": "Yue Liu",
+      "raw_affiliation_strings": [
+        "Monash University, Melbourne, Australia",
+        "Monash University, Australia"
+      ],
+      "raw_orcid": null,
+      "affiliations": [
+        {
+          "raw_affiliation_string": "Monash University, Melbourne, Australia",
+          "institution_ids": [
+            "https://openalex.org/I56590836"
+          ]
+        },
+        {
+          "raw_affiliation_string": "Monash University, Australia",
+          "institution_ids": [
+            "https://openalex.org/I56590836"
+          ]
+        }
+      ]
+    },
+    {
+      "author_position": "middle",
+      "author": {
+        "id": "https://openalex.org/A5008695791",
+        "display_name": "Zhou Yang",
+        "orcid": "https://orcid.org/0000-0001-5938-1918"
+      },
+      "institutions": [
+        {
+          "id": "https://openalex.org/I79891267",
+          "display_name": "Singapore Management University",
+          "ror": "https://ror.org/050qmg959",
+          "country_code": "SG",
+          "type": "education",
+          "lineage": [
+            "https://openalex.org/I79891267"
+          ]
+        }
+      ],
+      "countries": [
+        "SG"
+      ],
+      "is_corresponding": false,
+      "raw_author_name": "Zhou Yang",
+      "raw_affiliation_strings": [
+        "Singapore Management University, Singapore"
+      ],
+      "raw_orcid": null,
+      "affiliations": [
+        {
+          "raw_affiliation_string": "Singapore Management University, Singapore",
+          "institution_ids": [
+            "https://openalex.org/I79891267"
+          ]
+        }
+      ]
+    },
+    {
+      "author_position": "middle",
+      "author": {
+        "id": "https://openalex.org/A5000432413",
+        "display_name": "Kailong Wang",
+        "orcid": "https://orcid.org/0000-0002-3977-6573"
+      },
+      "institutions": [
+        {
+          "id": "https://openalex.org/I47720641",
+          "display_name": "Huazhong University of Science and Technology",
+          "ror": "https://ror.org/00p991c53",
+          "country_code": "CN",
+          "type": "education",
+          "lineage": [
+            "https://openalex.org/I47720641"
+          ]
+        }
+      ],
+      "countries": [
+        "CN"
+      ],
+      "is_corresponding": false,
+      "raw_author_name": "Kailong Wang",
+      "raw_affiliation_strings": [
+        "Huazhong University of Science and Technology, Wuhan, China",
+        "Huazhong University of Science and Technology, China"
+      ],
+      "raw_orcid": null,
+      "affiliations": [
+        {
+          "raw_affiliation_string": "Huazhong University of Science and Technology, Wuhan, China",
+          "institution_ids": [
+            "https://openalex.org/I47720641"
+          ]
+        },
+        {
+          "raw_affiliation_string": "Huazhong University of Science and Technology, China",
+          "institution_ids": [
+            "https://openalex.org/I47720641"
+          ]
+        }
+      ]
+    },
+    {
+      "author_position": "middle",
+      "author": {
+        "id": "https://openalex.org/A5106407830",
+        "display_name": "Li Li",
+        "orcid": "https://orcid.org/0000-0003-2990-1614"
+      },
+      "institutions": [
+        {
+          "id": "https://openalex.org/I82880672",
+          "display_name": "Beihang University",
+          "ror": "https://ror.org/00wk2mp56",
+          "country_code": "CN",
+          "type": "education",
+          "lineage": [
+            "https://openalex.org/I82880672"
+          ]
+        }
+      ],
+      "countries": [
+        "CN"
+      ],
+      "is_corresponding": false,
+      "raw_author_name": "Li Li",
+      "raw_affiliation_strings": [
+        "Beihang University, Beijing, China",
+        "Beihang University, China"
+      ],
+      "raw_orcid": null,
+      "affiliations": [
+        {
+          "raw_affiliation_string": "Beihang University, Beijing, China",
+          "institution_ids": [
+            "https://openalex.org/I82880672"
+          ]
+        },
+        {
+          "raw_affiliation_string": "Beihang University, China",
+          "institution_ids": [
+            "https://openalex.org/I82880672"
+          ]
+        }
+      ]
+    },
+    {
+      "author_position": "middle",
+      "author": {
+        "id": "https://openalex.org/A5100400376",
+        "display_name": "Xiapu Luo",
+        "orcid": "https://orcid.org/0000-0002-9082-3208"
+      },
+      "institutions": [
+        {
+          "id": "https://openalex.org/I14243506",
+          "display_name": "Hong Kong Polytechnic University",
+          "ror": "https://ror.org/0030zas98",
+          "country_code": "HK",
+          "type": "education",
+          "lineage": [
+            "https://openalex.org/I14243506"
+          ]
+        }
+      ],
+      "countries": [
+        "HK"
+      ],
+      "is_corresponding": false,
+      "raw_author_name": "Xiapu Luo",
+      "raw_affiliation_strings": [
+        "The Hong Kong Polytechnic University, Hong Kong, China",
+        "The Hong Kong Polytechnic University, China"
+      ],
+      "raw_orcid": null,
+      "affiliations": [
+        {
+          "raw_affiliation_string": "The Hong Kong Polytechnic University, Hong Kong, China",
+          "institution_ids": [
+            "https://openalex.org/I14243506"
+          ]
+        },
+        {
+          "raw_affiliation_string": "The Hong Kong Polytechnic University, China",
+          "institution_ids": [
+            "https://openalex.org/I14243506"
+          ]
+        }
+      ]
+    },
+    {
+      "author_position": "middle",
+      "author": {
+        "id": "https://openalex.org/A5081036622",
+        "display_name": "David Lo",
+        "orcid": "https://orcid.org/0000-0002-4367-7201"
+      },
+      "institutions": [
+        {
+          "id": "https://openalex.org/I79891267",
+          "display_name": "Singapore Management University",
+          "ror": "https://ror.org/050qmg959",
+          "country_code": "SG",
+          "type": "education",
+          "lineage": [
+            "https://openalex.org/I79891267"
+          ]
+        }
+      ],
+      "countries": [
+        "SG"
+      ],
+      "is_corresponding": false,
+      "raw_author_name": "David Lo",
+      "raw_affiliation_strings": [
+        "Singapore Management University, Singapore"
+      ],
+      "raw_orcid": null,
+      "affiliations": [
+        {
+          "raw_affiliation_string": "Singapore Management University, Singapore",
+          "institution_ids": [
+            "https://openalex.org/I79891267"
+          ]
+        }
+      ]
+    },
+    {
+      "author_position": "middle",
+      "author": {
+        "id": "https://openalex.org/A5082913979",
+        "display_name": "John Grundy",
+        "orcid": "https://orcid.org/0000-0003-4928-7076"
+      },
+      "institutions": [
+        {
+          "id": "https://openalex.org/I56590836",
+          "display_name": "Monash University",
+          "ror": "https://ror.org/02bfwt286",
+          "country_code": "AU",
+          "type": "education",
+          "lineage": [
+            "https://openalex.org/I56590836"
+          ]
+        }
+      ],
+      "countries": [
+        "AU"
+      ],
+      "is_corresponding": false,
+      "raw_author_name": "John Grundy",
+      "raw_affiliation_strings": [
+        "Monash University, Melbourne, Australia",
+        "Monash University, Australia"
+      ],
+      "raw_orcid": null,
+      "affiliations": [
+        {
+          "raw_affiliation_string": "Monash University, Melbourne, Australia",
+          "institution_ids": [
+            "https://openalex.org/I56590836"
+          ]
+        },
+        {
+          "raw_affiliation_string": "Monash University, Australia",
+          "institution_ids": [
+            "https://openalex.org/I56590836"
+          ]
+        }
+      ]
+    },
+    {
+      "author_position": "last",
+      "author": {
+        "id": "https://openalex.org/A5115695530",
+        "display_name": "Haoyu Wang",
+        "orcid": "https://orcid.org/0000-0003-1100-8633"
+      },
+      "institutions": [
+        {
+          "id": "https://openalex.org/I47720641",
+          "display_name": "Huazhong University of Science and Technology",
+          "ror": "https://ror.org/00p991c53",
+          "country_code": "CN",
+          "type": "education",
+          "lineage": [
+            "https://openalex.org/I47720641"
+          ]
+        }
+      ],
+      "countries": [
+        "CN"
+      ],
+      "is_corresponding": false,
+      "raw_author_name": "Haoyu Wang",
+      "raw_affiliation_strings": [
+        "Huazhong University of Science and Technology, Wuhan, China",
+        "Huazhong University of Science and Technology, China"
+      ],
+      "raw_orcid": null,
+      "affiliations": [
+        {
+          "raw_affiliation_string": "Huazhong University of Science and Technology, Wuhan, China",
+          "institution_ids": [
+            "https://openalex.org/I47720641"
+          ]
+        },
+        {
+          "raw_affiliation_string": "Huazhong University of Science and Technology, China",
+          "institution_ids": [
+            "https://openalex.org/I47720641"
+          ]
+        }
+      ]
+    }
+  ],
+  "primary_location": {
+    "id": "doi:10.1145/3695988",
+    "is_oa": false,
+    "landing_page_url": "https://doi.org/10.1145/3695988",
+    "pdf_url": null,
+    "source": {
+      "id": "https://openalex.org/S142627899",
+      "display_name": "ACM Transactions on Software Engineering and Methodology",
+      "issn_l": "1049-331X",
+      "issn": [
+        "1049-331X",
+        "1557-7392"
+      ],
+      "is_oa": false,
+      "is_in_doaj": false,
+      "is_core": true,
+      "host_organization": "https://openalex.org/P4310319798",
+      "host_organization_name": "Association for Computing Machinery",
+      "host_organization_lineage": [
+        "https://openalex.org/P4310319798"
+      ],
+      "host_organization_lineage_names": [
+        "Association for Computing Machinery"
+      ],
+      "type": "journal"
+    },
+    "license": null,
+    "license_id": null,
+    "version": "publishedVersion",
+    "is_accepted": true,
+    "is_published": true,
+    "raw_source_name": "ACM Transactions on Software Engineering and Methodology",
+    "raw_type": "journal-article"
+  },
+  "open_access": {
+    "is_oa": false,
+    "oa_status": "closed",
+    "oa_url": null,
+    "any_repository_has_fulltext": false
+  },
+  "abstract_inverted_index": {
+    "Large": [
+      0
+    ],
+    "Language": [
+      1
+    ],
+    "Models": [
+      2
+    ],
+    "(LLMs)": [
+      3
+    ],
+    "have": [
+      4,
+      16,
+      101,
+      162
+    ],
+    "significantly": [
+      5
+    ],
+    "impacted": [
+      6
+    ],
+    "numerous": [
+      7
+    ],
+    "domains,": [
+      8
+    ],
+    "including": [
+      9
+    ],
+    "Software": [
+      10
+    ],
+    "Engineering": [
+      11
+    ],
+    "(SE).": [
+      12
+    ],
+    "Many": [
+      13
+    ],
+    "recent": [
+      14
+    ],
+    "publications": [
+      15
+    ],
+    "explored": [
+      17
+    ],
+    "LLMs": [
+      18,
+      36,
+      65,
+      99,
+      150,
+      161
+    ],
+    "applied": [
+      19
+    ],
+    "to": [
+      20,
+      69,
+      84,
+      87,
+      143,
+      165,
+      171,
+      177
+    ],
+    "various": [
+      21
+    ],
+    "SE": [
+      22,
+      38,
+      105,
+      136,
+      158
+    ],
+    "tasks.": [
+      23
+    ],
+    "Nevertheless,": [
+      24
+    ],
+    "a": [
+      25,
+      51,
+      59
+    ],
+    "comprehensive": [
+      26
+    ],
+    "understanding": [
+      27,
+      63
+    ],
+    "of": [
+      28,
+      35,
+      129,
+      149
+    ],
+    "the": [
+      29,
+      117,
+      127,
+      140,
+      147,
+      156,
+      172,
+      175,
+      182
+    ],
+    "application,": [
+      30,
+      125
+    ],
+    "effects,": [
+      31
+    ],
+    "and": [
+      32,
+      72,
+      76,
+      111,
+      124,
+      145,
+      185,
+      192
+    ],
+    "possible": [
+      33
+    ],
+    "limitations": [
+      34
+    ],
+    "on": [
+      37,
+      56,
+      62
+    ],
+    "is": [
+      39
+    ],
+    "still": [
+      40
+    ],
+    "in": [
+      41,
+      104,
+      120,
+      151,
+      189
+    ],
+    "its": [
+      42
+    ],
+    "early": [
+      43
+    ],
+    "stages.": [
+      44
+    ],
+    "To": [
+      45
+    ],
+    "bridge": [
+      46
+    ],
+    "this": [
+      47
+    ],
+    "gap,": [
+      48
+    ],
+    "we": [
+      49,
+      96,
+      115,
+      180
+    ],
+    "conducted": [
+      50
+    ],
+    "Systematic": [
+      52
+    ],
+    "Literature": [
+      53
+    ],
+    "Review": [
+      54
+    ],
+    "(SLR)": [
+      55
+    ],
+    "LLM4SE,": [
+      57
+    ],
+    "with": [
+      58
+    ],
+    "particular": [
+      60
+    ],
+    "focus": [
+      61
+    ],
+    "how": [
+      64
+    ],
+    "can": [
+      66
+    ],
+    "be": [
+      67
+    ],
+    "exploited": [
+      68
+    ],
+    "optimize": [
+      70,
+      144
+    ],
+    "processes": [
+      71
+    ],
+    "outcomes.": [
+      73
+    ],
+    "We": [
+      74
+    ],
+    "selected": [
+      75
+    ],
+    "analyzed": [
+      77
+    ],
+    "395": [
+      78
+    ],
+    "research": [
+      79
+    ],
+    "articles": [
+      80
+    ],
+    "from": [
+      81
+    ],
+    "January": [
+      82,
+      85
+    ],
+    "2017": [
+      83
+    ],
+    "2024": [
+      86
+    ],
+    "answer": [
+      88
+    ],
+    "four": [
+      89
+    ],
+    "key": [
+      90
+    ],
+    "Research": [
+      91
+    ],
+    "Questions": [
+      92
+    ],
+    "(RQs).": [
+      93
+    ],
+    "In": [
+      94,
+      113
+    ],
+    "RQ1,": [
+      95
+    ],
+    "categorize": [
+      97
+    ],
+    "different": [
+      98
+    ],
+    "that": [
+      100
+    ],
+    "been": [
+      102
+    ],
+    "employed": [
+      103,
+      142
+    ],
+    "tasks,": [
+      106
+    ],
+    "characterizing": [
+      107
+    ],
+    "their": [
+      108,
+      168
+    ],
+    "distinctive": [
+      109
+    ],
+    "features": [
+      110
+    ],
+    "uses.": [
+      112
+    ],
+    "RQ2,": [
+      114
+    ],
+    "analyze": [
+      116
+    ],
+    "methods": [
+      118
+    ],
+    "used": [
+      119
+    ],
+    "data": [
+      121
+    ],
+    "collection,": [
+      122
+    ],
+    "pre-processing,": [
+      123
+    ],
+    "highlighting": [
+      126,
+      193
+    ],
+    "role": [
+      128
+    ],
+    "well-curated": [
+      130
+    ],
+    "datasets": [
+      131
+    ],
+    "for": [
+      132,
+      135,
+      196
+    ],
+    "successful": [
+      133
+    ],
+    "LLM": [
+      134
+    ],
+    "implementation.": [
+      137
+    ],
+    "RQ3": [
+      138
+    ],
+    "investigates": [
+      139
+    ],
+    "strategies": [
+      141
+    ],
+    "evaluate": [
+      146
+    ],
+    "performance": [
+      148
+    ],
+    "SE.": [
+      152
+    ],
+    "Finally,": [
+      153
+    ],
+    "RQ4": [
+      154
+    ],
+    "examines": [
+      155
+    ],
+    "specific": [
+      157
+    ],
+    "tasks": [
+      159
+    ],
+    "where": [
+      160
+    ],
+    "shown": [
+      163
+    ],
+    "success": [
+      164
+    ],
+    "date,": [
+      166
+    ],
+    "illustrating": [
+      167
+    ],
+    "practical": [
+      169
+    ],
+    "contributions": [
+      170
+    ],
+    "field.": [
+      173
+    ],
+    "From": [
+      174
+    ],
+    "answers": [
+      176
+    ],
+    "these": [
+      178
+    ],
+    "RQs,": [
+      179
+    ],
+    "discuss": [
+      181
+    ],
+    "current": [
+      183
+    ],
+    "state-of-the-art": [
+      184
+    ],
+    "trends,": [
+      186
+    ],
+    "identifying": [
+      187
+    ],
+    "gaps": [
+      188
+    ],
+    "existing": [
+      190
+    ],
+    "research,": [
+      191
+    ],
+    "promising": [
+      194
+    ],
+    "areas": [
+      195
+    ],
+    "future": [
+      197
+    ],
+    "study.": [
+      198
+    ],
+    "Our": [
+      199
+    ],
+    "artifacts": [
+      200
+    ],
+    "are": [
+      201
+    ],
+    "publicly": [
+      202
+    ],
+    "available": [
+      203
+    ],
+    "at": [
+      204
+    ],
+    "https://github.com/security-pride/LLM4SE_SLR": [
+      205
+    ],
+    ".": [
+      206
+    ]
+  }
+}

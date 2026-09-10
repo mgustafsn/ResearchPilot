@@ -6,3 +6,14 @@ def database_url():
     if not url.startswith("postgresql+psycopg://"):
         raise RuntimeError("Set DATABASE_URL to a postgresql+psycopg:// connection URL")
     return url
+
+
+def openalex_headers():
+    headers = {"User-Agent": "ResearchPilot/0.2", "Accept": "application/json"}
+    key = os.environ.get("OPENALEX_API_KEY", "").strip()
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+    email = os.environ.get("OPENALEX_EMAIL", "").strip()
+    if email:
+        headers["User-Agent"] += f" (mailto:{email})"
+    return headers

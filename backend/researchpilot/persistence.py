@@ -40,8 +40,11 @@ class ProjectRepository:
             select(ProjectRow).order_by(ProjectRow.updatedAt.desc(), ProjectRow.id)
         ).all()
 
-    def get(self, project_id):
-        return self.session.get(ProjectRow, project_id)
+    def get(self, project_id, for_update=False):
+        statement = select(ProjectRow).where(ProjectRow.id == project_id)
+        if for_update:
+            statement = statement.with_for_update()
+        return self.session.scalar(statement)
 
     def save(self, row):
         self.session.add(row)

@@ -2,6 +2,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import UUID
 
+import httpx
+
 from fastapi import Depends, FastAPI, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -9,23 +11,31 @@ from sqlalchemy import create_engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from .config import database_url
+from .config import database_url, openalex_headers
 from .domain import Project, ProjectInput
 from .persistence import ProjectRepository
 from .service import ProjectNotFound, ProjectService
+from .papers import Paper, ProviderError, SearchRun
+from .providers.openalex import OpenAlexProvider
+from .search import SearchService
+from .search_persistence import SearchConflict
 
 FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
 
 
-def create_app(engine=None):
+def create_app(engine=None, provider=None):
     @asynccontextmanager
     async def lifespan(app):
         app.state.engine = (
             engine if engine is not None else create_engine(database_url(), pool_pre_ping=True)
         )
-        yield
-        if engine is None:
-            app.state.engine.dispose()
+        async with httpx.AsyncClient(headers=openalex_headers(), timeout=15.0) as client:
+            app.state.search = SearchService(app.state.engine, provider or OpenAlexProvider(client))
+            try:
+                yield
+            finally:
+                if engine is None:
+                    app.state.engine.dispose()
 
     app = FastAPI(title="ResearchPilot", lifespan=lifespan)
 
@@ -67,6 +77,33 @@ def create_app(engine=None):
     def delete_project(project_id: UUID, svc=Depends(service, scope="function")):
         svc.delete(project_id)
         return Response(status_code=204)
+
+    @app.exception_handler(SearchConflict)
+    async def search_conflict(request, exc):
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+    @app.exception_handler(ProviderError)
+    async def provider_error(request, exc):
+        status = (
+            504
+            if exc.code == "TIMEOUT"
+            else 503
+            if exc.code in {"RATE_LIMITED", "AUTHENTICATION", "UNAVAILABLE"}
+            else 502
+        )
+        return JSONResponse(status_code=status, content={"detail": str(exc), "code": exc.code})
+
+    @app.post("/api/projects/{project_id}/search", response_model=SearchRun)
+    async def search_project(project_id: UUID):
+        return await app.state.search.search(project_id)
+
+    @app.get("/api/projects/{project_id}/searches", response_model=list[SearchRun])
+    def search_history(project_id: UUID):
+        return app.state.search.history(project_id)
+
+    @app.get("/api/projects/{project_id}/papers", response_model=list[Paper])
+    def project_papers(project_id: UUID):
+        return app.state.search.papers(project_id)
 
     app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
 

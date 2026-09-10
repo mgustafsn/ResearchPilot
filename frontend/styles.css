@@ -147,3 +147,19 @@ textarea { resize: vertical; min-height: 120px; }
   .project-meta { flex-wrap: wrap; }
   .form-actions { flex-wrap: wrap; }
 }
+
+/* Scholarly retrieval stays within the existing project workspace. */
+.detail-toolbar { justify-content: flex-start; flex-wrap: wrap; }
+.detail-toolbar .saved-chip { margin-right: auto; }
+[aria-disabled="true"] { opacity: .5; cursor: wait; }
+.paper-row h3 { overflow-wrap: anywhere; }
+.paper-metadata { color: var(--muted); margin-bottom: 4px; font-size: 12px; overflow-wrap: anywhere; }
+.paper-doi { color: #7a86a0; font-size: 11px; margin: 8px 0; overflow-wrap: anywhere; }
+.query-label { display: block; font-size: 11px; color: var(--muted); margin-top: 15px; }
+.search-query { overflow-wrap: anywhere; white-space: pre-wrap; font-size: 12px; padding: 10px; background: #f5f8fc; border-radius: 6px; margin: 5px 0 14px; }
+.search-status { color: #4265c3; font-size: 12px; }
+.search-failure { color: #a34f59; font-size: 12px; }
+.search-history { font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); padding-top: 12px; }
+.search-history summary { cursor: pointer; }
+.search-history-item { padding: 12px 0; border-bottom: 1px solid var(--border); }
+.search-history-item p { margin: 4px 0; overflow-wrap: anywhere; }
