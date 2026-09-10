@@ -264,6 +264,7 @@ function literature(project, left, aside, actions, remove) {
   searchButton.prepend(icon('search'));
   const papersPanel = panel(left, 'Papers', 'document');
   left.insertBefore(papersPanel, left.children[1]);
+  const filterSlot = element('div', '', papersPanel.querySelector('.panel-heading'), 'panel-heading-actions');
   const papersBody = element('div', '', papersPanel);
   const searchPanel = panel(aside, 'Literature search', 'search');
   aside.prepend(searchPanel);
@@ -400,6 +401,7 @@ function literature(project, left, aside, actions, remove) {
   }
   function showPapers(papers, history, subtopics) {
     papersBody.replaceChildren();
+    filterSlot.replaceChildren();
     papersPanel.querySelector('h2').textContent = `Papers (${papers.length})`;
     const completed = history.find(run => run.status === 'COMPLETED');
     if (completed) {
@@ -427,7 +429,7 @@ function literature(project, left, aside, actions, remove) {
     const setAside = papers.filter(p => p.isRelevant === false);
     let visible = showSetAside ? papers : papers.filter(p => p.isRelevant !== false);
     if (openAccessOnly) visible = visible.filter(p => p.accessStatus === 'OPEN_ACCESS');
-    const filters = element('div', '', papersBody, 'paper-filters');
+    const filters = element('div', '', filterSlot, 'paper-filters');
     if (setAside.length) {
       const toggle = element('button', showSetAside
         ? `Hide ${setAside.length} set aside` : `Show ${setAside.length} set aside`,
@@ -467,7 +469,8 @@ function literature(project, left, aside, actions, remove) {
     allButton.addEventListener('click', () => select(null));
     const buttons = groups.map((group, index) => {
       const button = element('button', '', tabRow, 'cluster-tab');
-      element('span', group.name, button);
+      button.title = group.name;
+      element('span', group.name, button, 'cluster-tab-name');
       element('span', String(group.members.length), button, 'count');
       button.addEventListener('click', () => select(index));
       return button;

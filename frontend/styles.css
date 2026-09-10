@@ -59,7 +59,8 @@ button:disabled { opacity: .6; cursor: wait; }
 .count { padding: 0 7px; font-size: 11px; background: #eef2ff; border-radius: 10px; }
 .workspace { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(270px, 1fr); gap: 18px; align-items: start; }
 .panel { min-width: 0; border: 1px solid var(--border); border-radius: 9px; padding: 18px; background: #fff; }
-.panel-heading { display: flex; gap: 12px; align-items: center; padding-bottom: 16px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+.panel-heading { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding-bottom: 16px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+.panel-heading-actions { margin-left: auto; display: flex; }
 .context-column { display: grid; gap: 18px; min-width: 0; }
 .insight { background: linear-gradient(120deg, #f3f7ff, #f0f5ff); border-color: #dce5ff; }
 .insight .panel-heading { padding-bottom: 10px; margin-bottom: 14px; }
@@ -160,7 +161,8 @@ textarea { resize: vertical; min-height: 120px; }
 .search-status { color: #4265c3; font-size: 12px; }
 .search-failure { color: #a34f59; font-size: 12px; }
 .cluster-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 22px; }
-.cluster-tab { background: none; border: 1px solid var(--border); font: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; padding: 6px 13px; border-radius: 999px; color: var(--muted); }
+.cluster-tab { max-width: 100%; background: none; border: 1px solid var(--border); font: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; padding: 6px 13px; border-radius: 999px; color: var(--muted); }
+.cluster-tab-name { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cluster-tab:hover { border-color: var(--blue); color: #111936; }
 .cluster-tab.active { background: var(--blue); border-color: var(--blue); color: #fff; }
 .cluster-tab.active .count { background: rgba(255, 255, 255, .22); color: #fff; }
@@ -190,7 +192,8 @@ textarea { resize: vertical; min-height: 120px; }
 .drawer-organize label { color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
 .drawer-organize select { width: auto; padding: 6px 8px; }
 .drawer-organize button { padding: 6px 12px; }
-.paper-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.paper-filters { display: flex; flex-wrap: wrap; gap: 8px; }
+.panel-heading-actions .set-aside-toggle { padding: 5px 11px; }
 .set-aside-toggle { padding: 6px 12px; font-size: 12px; }
 .set-aside-toggle.active { background: var(--blue); border-color: var(--blue); color: #fff; }
 .paper-row.set-aside { opacity: .55; }
