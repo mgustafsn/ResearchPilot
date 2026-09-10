@@ -1,10 +1,11 @@
 # ResearchPilot
 
-Phases 1–5: manage research projects, retrieve real scholarly papers from OpenAlex,
+Phases 1–6: manage research projects, retrieve real scholarly papers from OpenAlex,
 deduplicate and relevance-rank them with deterministic algorithms, embed and cluster
-them into groups, then have an LLM name and describe each cluster. Python 3.12+,
-FastAPI, SQLAlchemy, PostgreSQL, NumPy, OpenAI (embeddings + a chat model), and a
-same-origin vanilla JavaScript frontend.
+them into groups, have an LLM name and describe each cluster, and browse the result
+as a research map with staged search progress and a paper-detail drawer. Python
+3.12+, FastAPI, SQLAlchemy, PostgreSQL, NumPy, OpenAI (embeddings + a chat model),
+and a same-origin vanilla JavaScript frontend.
 
 ## Run locally
 
@@ -20,13 +21,14 @@ docker compose exec -T db psql -U researchpilot -d researchpilot -v ON_ERROR_STO
 docker compose exec -T db psql -U researchpilot -d researchpilot -v ON_ERROR_STOP=1 < migrations/003_deduplication_relevance.sql
 docker compose exec -T db psql -U researchpilot -d researchpilot -v ON_ERROR_STOP=1 < migrations/004_embeddings_clusters.sql
 docker compose exec -T db psql -U researchpilot -d researchpilot -v ON_ERROR_STOP=1 < migrations/005_subtopics.sql
+docker compose exec -T db psql -U researchpilot -d researchpilot -v ON_ERROR_STOP=1 < migrations/006_search_stage.sql
 uv run --env-file .env uvicorn researchpilot.api:app --host 127.0.0.1 --reload
 ```
 
 Open http://127.0.0.1:8000. API documentation is at `/docs`.
 Apply each numbered SQL migration once, in order; rerunning one fails without
 changing existing tables. When upgrading, apply only the migrations after your last
-applied number (for example, from Phase 4, apply only `005_subtopics.sql`).
+applied number (for example, from Phase 5, apply only `006_search_stage.sql`).
 Database startup never silently creates tables. Set `OPENAI_API_KEY` in `.env` before
 running a search — see [Phase 4](#phase-4-embed-and-cluster).
 Docker's named volume persists projects across restarts. The Compose password is
@@ -250,8 +252,35 @@ associations on each successful search. `GET /api/projects/{uuid}/subtopics` ret
 cluster tab and the description and keywords above that cluster's papers.
 
 Deliberate omissions: no query expansion, no per-paper "why it belongs here"
-explanations (Phase 7), no research map (Phase 6), no manual rename (Phase 8), no
-name reuse across searches (cluster composition changes each run), no streaming, and
-a single vendor. The `LlmProvider` interface leaves room for the rest.
+explanations (Phase 7), no manual rename (Phase 8), no name reuse across searches
+(cluster composition changes each run), no streaming, and a single vendor. The
+`LlmProvider` interface leaves room for the rest.
 
 Implementation details: [Phase 5](docs/phase-5.md).
+
+## Phase 6: the research map
+
+The project page is now the research map for a completed search: a summary line
+(paper count, subtopic count, publication years), the cluster tab bar with a
+leading **All** tab, the selected cluster's description and keywords, and its paper
+list. Nothing about retrieval or the pipeline changes.
+
+`search_runs.stage` (`006_search_stage.sql`) records pipeline progress —
+`RETRIEVING`, `ANALYZING`, `EMBEDDING`, `CLUSTERING`, `NAMING` — written in a short
+transaction between steps and cleared when the run finishes. The stage write is
+guarded by `status = 'SEARCHING'`, so a superseded run's late writes are ignored.
+The frontend already polls `GET .../searches` while a search runs and now shows the
+current stage in words.
+
+Clicking a paper opens a right-side drawer (`role="dialog"`, backdrop click / Esc /
+close button, focus moved in and restored) with the full author list, publication
+date and venue, publisher, citations, relevance, its cluster or subtopic name, the
+DOI, source, publication, and open-access links, and the complete abstract. It
+reads only fields already on `GET .../papers`; there is no new endpoint.
+
+Deliberate omissions: no left-rail redesign, no access-status labels (Phase 9), no
+per-paper classification explanations (Phase 7), no manual editing (Phase 8), no
+settings page, no research-coverage analysis. Progress is real but coarse: one
+stage at a time, no per-item counts.
+
+Implementation details: [Phase 6](docs/phase-6.md).

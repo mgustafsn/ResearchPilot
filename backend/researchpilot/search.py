@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from .analysis import RankedPaper, deduplicate, rank_papers
@@ -87,6 +88,7 @@ class SearchService:
                 skippedCount=0,
                 duplicateCount=0,
                 clusterCount=0,
+                stage="RETRIEVING",
             )
             session.add(run)
             project.status = "SEARCHING"
@@ -97,8 +99,18 @@ class SearchService:
         with Session(self.engine) as session:
             return SearchRepository(session).existing_embeddings(paper_ids, model)
 
+    def _set_stage(self, run_id, stage):
+        """Record pipeline progress for a running search; a no-op once superseded."""
+        with Session(self.engine) as session, session.begin():
+            session.execute(
+                update(SearchRunRow)
+                .where(SearchRunRow.id == run_id, SearchRunRow.status == "SEARCHING")
+                .values(stage=stage)
+            )
+
     async def _prepare(self, run, result) -> CompletedSearch:
         """Deduplicate, rank, embed the newcomers, and cluster — all outside a transaction."""
+        await asyncio.to_thread(self._set_stage, run.id, "ANALYZING")
         deduplicated, duplicate_count = deduplicate(result.papers)
         ranked = rank_papers(deduplicated, run.researchQuestion, run.keywords)
         model = self.embedding_provider.model
@@ -107,6 +119,7 @@ class SearchService:
         )
         missing = [item for item in ranked if item.paper.id not in existing]
         fresh_vectors: dict[UUID, list[float]] = {}
+        await asyncio.to_thread(self._set_stage, run.id, "EMBEDDING")
         if missing:
             vectors = await asyncio.wait_for(
                 self.embedding_provider.embed([_embedding_text(item.paper) for item in missing]),
@@ -117,9 +130,12 @@ class SearchService:
             }
         by_id = {**existing, **fresh_vectors}
         ordered = [by_id[item.paper.id] for item in ranked]
+        await asyncio.to_thread(self._set_stage, run.id, "CLUSTERING")
         labels = await asyncio.to_thread(cluster_papers, ordered) if ordered else []
         clusters = {item.paper.id: label for item, label in zip(ranked, labels, strict=True)}
         cluster_count = len({label for label in labels if label is not None})
+        if cluster_count >= 2:
+            await asyncio.to_thread(self._set_stage, run.id, "NAMING")
         subtopics, naming_error = await self._name_clusters(run, ranked, clusters, cluster_count)
         return CompletedSearch(
             ranked=ranked,
@@ -194,6 +210,7 @@ class SearchService:
                 latest.clusterCount = completed.cluster_count
                 latest.namingError = completed.naming_error
                 latest.status = "COMPLETED"
+            latest.stage = None
             latest.finishedAt = datetime.now(UTC)
             project.status = latest.status
             project.updatedAt = latest.finishedAt

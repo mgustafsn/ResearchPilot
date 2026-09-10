@@ -65,6 +65,7 @@ class SearchRunRow(Base):
     skippedCount: Mapped[int]
     duplicateCount: Mapped[int]
     clusterCount: Mapped[int]
+    stage: Mapped[str | None] = mapped_column(String(20))
     namingError: Mapped[str | None] = mapped_column(String(32))
     errorCode: Mapped[str | None] = mapped_column(String(32))
     errorMessage: Mapped[str | None] = mapped_column(Text)
@@ -224,6 +225,7 @@ def expire_search(project, repository):
         started = SearchRun.model_validate(latest).startedAt
         if datetime.now(UTC) - started > timedelta(seconds=SEARCH_LEASE_SECONDS):
             latest.status = "FAILED"
+            latest.stage = None
             latest.finishedAt = datetime.now(UTC)
             latest.errorCode = "INTERRUPTED"
             latest.errorMessage = str(ProviderError("INTERRUPTED"))

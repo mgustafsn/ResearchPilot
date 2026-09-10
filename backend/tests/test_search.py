@@ -2,7 +2,7 @@ import asyncio
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -279,6 +279,30 @@ def test_subtopics_are_replaced_on_a_new_search(search_client_named):
     provider.papers = [normalize_work(WORK)]
     client.post(url + "/search")
     assert client.get(url + "/subtopics").json() == []  # single cluster, not named
+
+
+def test_search_reports_pipeline_stages(search_client_named, monkeypatch):
+    client, provider, embedder, llm, url = search_client_named
+    provider.papers = _grouped_papers()
+    seen = []
+    original = client.app.state.search._set_stage
+
+    def spy(run_id, stage):
+        seen.append(stage)
+        return original(run_id, stage)
+
+    monkeypatch.setattr(client.app.state.search, "_set_stage", spy)
+    client.post(url + "/search")
+    assert seen == ["ANALYZING", "EMBEDDING", "CLUSTERING", "NAMING"]
+    assert client.get(url + "/searches").json()[0]["stage"] is None
+
+
+def test_stage_is_retrieving_while_a_search_runs(search_client_named):
+    client, *_, url = search_client_named
+    project_id = UUID(client.get(url).json()["id"])
+    run = client.app.state.search.start(project_id)
+    assert run.stage == "RETRIEVING"
+    assert client.get(url + "/searches").json()[0]["stage"] == "RETRIEVING"
 
 
 def test_failure_preserves_previous_results(search_client):

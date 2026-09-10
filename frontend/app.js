@@ -10,6 +10,13 @@ const paths = {
   bulb: '<path d="M9 18h6M10 21h4M8 14a7 7 0 1 1 8 0c-1 1-1 2-1 4H9c0-2 0-3-1-4Z"/>',
   tag: '<path d="m3 3 9 1 9 9-8 8-9-9Z"/><circle cx="8" cy="8" r="1"/>',
 };
+const SEARCH_STAGES = {
+  RETRIEVING: 'Searching scholarly databases…',
+  ANALYZING: 'Removing duplicates and ranking by relevance…',
+  EMBEDDING: 'Generating paper embeddings…',
+  CLUSTERING: 'Discovering research themes…',
+  NAMING: 'Naming the clusters…',
+};
 function icon(name) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
@@ -263,6 +270,62 @@ function literature(project, left, aside, actions, remove) {
     editLink.setAttribute('aria-disabled', String(value));
   }
   editLink.addEventListener('click', event => { if (busy) event.preventDefault(); });
+  const drawer = element('div', '', document.body, 'drawer');
+  drawer.hidden = true;
+  const backdrop = element('div', '', drawer, 'drawer-backdrop');
+  const drawerPanel = element('aside', '', drawer, 'drawer-panel');
+  drawerPanel.setAttribute('role', 'dialog');
+  drawerPanel.setAttribute('aria-modal', 'true');
+  drawerPanel.setAttribute('aria-label', 'Paper details');
+  drawerPanel.tabIndex = -1;
+  let drawerReturnFocus = null;
+  function closeDrawer() {
+    drawer.hidden = true;
+    document.removeEventListener('keydown', drawerKey);
+    if (drawerReturnFocus) drawerReturnFocus.focus();
+  }
+  function drawerKey(event) { if (event.key === 'Escape') closeDrawer(); }
+  backdrop.addEventListener('click', closeDrawer);
+  function drawerField(label, value, options = {}) {
+    if (!value) return;
+    const row = element('div', '', drawerPanel, 'drawer-field');
+    element('dt', label, row);
+    const dd = element('dd', options.href ? '' : value, row);
+    if (options.href) {
+      const anchor = link(value, options.href, dd);
+      anchor.target = '_blank';
+      anchor.rel = 'noopener noreferrer';
+    }
+  }
+  function openDrawer(paper, named) {
+    drawerReturnFocus = document.activeElement;
+    drawerPanel.replaceChildren();
+    const head = element('div', '', drawerPanel, 'drawer-head');
+    element('span', 'Paper details', head, 'query-label');
+    element('button', 'Close', head, 'secondary').addEventListener('click', closeDrawer);
+    element('h2', paper.title || 'Title unavailable', drawerPanel, 'drawer-title');
+    const authors = paper.authors.map(author => author.name).filter(Boolean);
+    drawerField('Authors', authors.length ? authors.join(', ') : 'Not available');
+    drawerField('Published', [paper.publicationDate || paper.publicationYear, paper.venue || paper.journal]
+      .filter(Boolean).join(' · ') || 'Not available');
+    drawerField('Publisher', paper.publisher);
+    drawerField('Citations', paper.citationCount ?? 'Not available');
+    drawerField('Relevance', `${Math.round((paper.relevanceScore ?? 0) * 100)}%`);
+    const topic = named && named.get(paper.clusterId);
+    drawerField('Cluster', topic ? topic.name
+      : paper.clusterId === null || paper.clusterId === undefined ? 'Uncategorized'
+      : `Cluster ${paper.clusterId + 1}`);
+    drawerField('DOI', paper.doi, {href: paper.doiUrl || (paper.doi && `https://doi.org/${paper.doi}`)});
+    drawerField('Source', `View on ${paper.source}`, {href: paper.sourceUrl});
+    drawerField('Publication', 'Open publication page', {href: paper.publicationUrl});
+    if (paper.openAccessUrl) drawerField('Open access', 'Open full text', {href: paper.openAccessUrl});
+    element('h3', 'Abstract', drawerPanel);
+    element('p', paper.abstract || 'No abstract is available for this paper.', drawerPanel,
+      paper.abstract ? 'drawer-abstract' : 'muted');
+    drawer.hidden = false;
+    document.addEventListener('keydown', drawerKey);
+    drawerPanel.focus();
+  }
   function showPapers(papers, history, subtopics) {
     papersBody.replaceChildren();
     papersPanel.querySelector('h2').textContent = `Papers (${papers.length})`;
@@ -276,6 +339,8 @@ function literature(project, left, aside, actions, remove) {
         : `Retrieved from ${completed.provider} on ${date(completed.finishedAt)}.`, papersBody, 'field-help');
       if (completed.skippedCount) element('p', `${completed.skippedCount} provider records could not be normalized.`, papersBody, 'field-help');
       if (completed.duplicateCount) element('p', `${completed.duplicateCount} duplicate ${completed.duplicateCount === 1 ? 'record was' : 'records were'} merged by DOI, identifier, or title.`, papersBody, 'field-help');
+      const topicCount = (subtopics || []).length;
+      element('p', `${papers.length} ${papers.length === 1 ? 'paper' : 'papers'} · ${topicCount || 'no'} ${topicCount === 1 ? 'subtopic' : 'subtopics'} · ${yearRange(completed.parameters)}`, papersBody, 'research-summary');
     }
     if (!papers.length) {
       const empty = element('div', '', papersBody, 'empty-state');
@@ -297,7 +362,7 @@ function literature(project, left, aside, actions, remove) {
     const uncategorized = papers.filter(p => p.clusterId === null || p.clusterId === undefined);
     if (uncategorized.length) groups.push({name: 'Uncategorized', topic: null, members: uncategorized});
     if (groups.length < 2) {
-      for (const paper of papers) paperRow(paper, papersBody);
+      for (const paper of papers) paperRow(paper, papersBody, named);
       return;
     }
     if (completed && completed.namingError) {
@@ -307,21 +372,24 @@ function literature(project, left, aside, actions, remove) {
     const detail = element('div', '', papersBody);
     const list = element('div', '', papersBody);
     let active = null;
+    const allButton = element('button', '', tabRow, 'cluster-tab');
+    element('span', 'All', allButton);
+    element('span', String(papers.length), allButton, 'count');
+    allButton.addEventListener('click', () => select(null));
     const buttons = groups.map((group, index) => {
       const button = element('button', '', tabRow, 'cluster-tab');
       element('span', group.name, button);
       element('span', String(group.members.length), button, 'count');
-      button.addEventListener('click', () => {
-        active = active === index ? null : index;
-        buttons.forEach((other, i) => other.classList.toggle('active', i === active));
-        render();
-      });
+      button.addEventListener('click', () => select(index));
       return button;
     });
-    function render() {
+    function select(index) {
+      active = index;
+      allButton.classList.toggle('active', index === null);
+      buttons.forEach((button, i) => button.classList.toggle('active', i === index));
       detail.replaceChildren();
       list.replaceChildren();
-      const group = active === null ? null : groups[active];
+      const group = index === null ? null : groups[index];
       if (group && group.topic) {
         element('p', group.topic.description, detail, 'cluster-description');
         if (group.topic.keywords.length) {
@@ -329,12 +397,14 @@ function literature(project, left, aside, actions, remove) {
           for (const keyword of group.topic.keywords) element('span', keyword, keywords, 'keyword');
         }
       }
-      for (const paper of group ? group.members : papers) paperRow(paper, list);
+      for (const paper of group ? group.members : papers) paperRow(paper, list, named);
     }
-    render();
+    select(null);
   }
-  function paperRow(paper, parent) {
+  function paperRow(paper, parent, named) {
     const row = element('article', '', parent, 'project-row paper-row');
+    row.tabIndex = 0;
+    row.setAttribute('role', 'button');
     element('h3', paper.title || 'Title unavailable', row);
     const authors = paper.authors.map(author => author.name).filter(Boolean);
     const authorLabel = authors.length ? authors.slice(0, 3).join(', ') + (authors.length > 3 ? ' et al.' : '') : 'Authors unavailable';
@@ -343,10 +413,13 @@ function literature(project, left, aside, actions, remove) {
     if (paper.doi) element('p', `DOI: ${paper.doi}`, row, 'paper-doi');
     const footer = element('div', '', row, 'project-meta');
     element('span', `Relevance: ${Math.round((paper.relevanceScore ?? 0) * 100)}% · Citations: ${paper.citationCount ?? 'Unavailable'} · ${paper.source}`, footer);
-    const source = link('View source', paper.sourceUrl, footer, 'open-link');
-    source.target = '_blank';
-    source.rel = 'noopener noreferrer';
-    source.append(icon('arrow'));
+    const details = element('span', 'View details', footer, 'open-link');
+    details.append(icon('arrow'));
+    const open = () => openDrawer(paper, named);
+    row.addEventListener('click', event => { if (!event.target.closest('a')) open(); });
+    row.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); }
+    });
   }
   function showSearch(history) {
     searchBody.replaceChildren();
@@ -359,7 +432,7 @@ function literature(project, left, aside, actions, remove) {
       element('p', 'No search has been run yet.', searchBody, 'muted');
       return;
     }
-    element('p', busy ? 'Searching scholarly papers…'
+    element('p', busy ? (SEARCH_STAGES[latest.stage] || 'Searching scholarly papers…')
       : latest.status === 'FAILED' ? latest.errorMessage
       : `${latest.paperCount} papers saved · ${latest.clusterCount} ${latest.clusterCount === 1 ? 'cluster' : 'clusters'} · ${latest.totalFound.toLocaleString()} matches in OpenAlex`,
       searchBody, latest.status === 'FAILED' ? 'search-failure' : 'search-status');

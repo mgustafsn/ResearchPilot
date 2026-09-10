@@ -1,0 +1,3 @@
+BEGIN;
+ALTER TABLE search_runs ADD COLUMN "stage" VARCHAR(20);
+COMMIT;

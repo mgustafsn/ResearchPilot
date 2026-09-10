@@ -70,6 +70,7 @@ class SearchRun(BaseModel):
     researchQuestion: str
     keywords: list[str]
     status: Literal["SEARCHING", "COMPLETED", "FAILED"]
+    stage: str | None = None
     startedAt: datetime
     finishedAt: datetime | None = None
     totalFound: int | None = None
