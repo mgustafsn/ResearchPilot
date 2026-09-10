@@ -1,12 +1,13 @@
 # ResearchPilot
 
-Phases 1–8: manage research projects, retrieve real scholarly papers from OpenAlex,
+Phases 1–9: manage research projects, retrieve real scholarly papers from OpenAlex,
 deduplicate and relevance-rank them with deterministic algorithms, embed and cluster
 them into groups, have an LLM name each cluster and explain why a paper belongs in
 it, browse the result as a research map with staged search progress and a
-paper-detail drawer, and manually rename subtopics, move papers, and set papers
-aside. Python 3.12+, FastAPI, SQLAlchemy, PostgreSQL, NumPy, OpenAI (embeddings + a
-chat model), and a same-origin vanilla JavaScript frontend.
+paper-detail drawer, manually rename subtopics, move papers, and set papers aside,
+and see each paper's open-access status and links. Python 3.12+, FastAPI, SQLAlchemy,
+PostgreSQL, NumPy, OpenAI (embeddings + a chat model), and a same-origin vanilla
+JavaScript frontend.
 
 ## Run locally
 
@@ -31,8 +32,8 @@ uv run --env-file .env uvicorn researchpilot.api:app --host 127.0.0.1 --reload
 Open http://127.0.0.1:8000. API documentation is at `/docs`.
 Apply each numbered SQL migration once, in order; rerunning one fails without
 changing existing tables. When upgrading, apply only the migrations after your last
-applied number (for example, from Phase 7, apply only `008_manual_edits.sql`).
-Database startup never silently creates tables. Set `OPENAI_API_KEY` in `.env` before
+applied number (for example, from Phase 7, apply only `008_manual_edits.sql`); Phase
+9 adds no migration. Database startup never silently creates tables. Set `OPENAI_API_KEY` in `.env` before
 running a search — see [Phase 4](#phase-4-embed-and-cluster).
 Docker's named volume persists projects across restarts. The Compose password is
 only a local development credential. This phase is a local single-user application;
@@ -352,3 +353,25 @@ history, no per-edit attribution, and edits are discarded on re-search after
 confirmation rather than reconciled.
 
 Implementation details: [Phase 8](docs/phase-8.md).
+
+## Phase 9: open-access status and links
+
+Every paper carries `accessStatus`, a computed field on the API response:
+`OPEN_ACCESS` when OpenAlex reports the work open or gives a free full-text URL,
+`ABSTRACT_ONLY` when only an abstract is present, `UNKNOWN` otherwise.
+`INSTITUTIONAL_ACCESS` (requirements §17) is reserved for future authenticated
+access and is never emitted. It is derived from `isOpenAccess`, `openAccessUrl`, and
+`abstract` — no storage, no migration, no extra network call. OpenAlex's
+open-access data already aggregates Unpaywall and other sources, so an independent
+resolver is left as a future addition.
+
+The frontend shows an `OPEN ACCESS` / `ABSTRACT ONLY` / `UNKNOWN` pill on each paper
+card and in the drawer, folds the DOI, source, publication, and free-full-text links
+into one **Access & links** block, adds an **Open access only** list filter beside
+the set-aside toggle, and reports the open-access count in the results summary.
+
+Deliberate omissions: no Unpaywall or other independent resolver, no
+`INSTITUTIONAL_ACCESS` / library authentication (§18), no PDF fetching or storage
+(§36), and no per-paper access override.
+
+Implementation details: [Phase 9](docs/phase-9.md).

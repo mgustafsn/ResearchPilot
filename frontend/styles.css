@@ -190,8 +190,18 @@ textarea { resize: vertical; min-height: 120px; }
 .drawer-organize label { color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
 .drawer-organize select { width: auto; padding: 6px 8px; }
 .drawer-organize button { padding: 6px 12px; }
-.set-aside-toggle { padding: 6px 12px; margin-bottom: 14px; font-size: 12px; }
+.paper-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.set-aside-toggle { padding: 6px 12px; font-size: 12px; }
+.set-aside-toggle.active { background: var(--blue); border-color: var(--blue); color: #fff; }
 .paper-row.set-aside { opacity: .55; }
+.paper-title-row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.paper-title-row h3 { margin-bottom: 0; }
+.access-pill { font-size: 10px; letter-spacing: .3px; text-transform: uppercase; border-radius: 10px; padding: 2px 8px; white-space: nowrap; }
+.access-open_access { color: #1f7a4d; background: #e3f5ec; }
+.access-abstract_only { color: #7a5a1f; background: #f6efe0; }
+.access-unknown { color: var(--muted); background: #eef1f6; }
+.access-line { display: flex; align-items: center; gap: 9px; font-size: 12px; margin-bottom: 4px; }
+.access-note { color: var(--muted); }
 .subtopic-header { margin-bottom: 16px; }
 .subtopic-header .cluster-description { margin-bottom: 8px; }
 .edit-name { padding: 4px 12px; margin-top: 10px; font-size: 12px; }

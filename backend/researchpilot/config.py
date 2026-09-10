@@ -9,7 +9,7 @@ def database_url():
 
 
 def openalex_headers():
-    headers = {"User-Agent": "ResearchPilot/0.8", "Accept": "application/json"}
+    headers = {"User-Agent": "ResearchPilot/0.9", "Accept": "application/json"}
     key = os.environ.get("OPENALEX_API_KEY", "").strip()
     if key:
         headers["Authorization"] = f"Bearer {key}"
@@ -20,7 +20,7 @@ def openalex_headers():
 
 
 def openai_headers():
-    headers = {"User-Agent": "ResearchPilot/0.8", "Accept": "application/json"}
+    headers = {"User-Agent": "ResearchPilot/0.9", "Accept": "application/json"}
     key = os.environ.get("OPENAI_API_KEY", "").strip()
     if key:
         headers["Authorization"] = f"Bearer {key}"

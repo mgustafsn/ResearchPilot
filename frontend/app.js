@@ -17,6 +17,17 @@ const SEARCH_STAGES = {
   CLUSTERING: 'Discovering research themes…',
   NAMING: 'Naming the clusters…',
 };
+const ACCESS_LABEL = {
+  OPEN_ACCESS: 'A free full-text copy is available.',
+  ABSTRACT_ONLY: 'Only the abstract is available.',
+  UNKNOWN: 'Full-text availability is unknown.',
+};
+function accessBadge(status) {
+  const span = document.createElement('span');
+  span.className = `access-pill access-${(status || 'UNKNOWN').toLowerCase()}`;
+  span.textContent = {OPEN_ACCESS: 'Open access', ABSTRACT_ONLY: 'Abstract only'}[status] || 'Unknown';
+  return span;
+}
 function icon(name) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
@@ -262,6 +273,7 @@ function literature(project, left, aside, actions, remove) {
   let timer;
   let displayedRunId;
   let showSetAside = false;
+  let openAccessOnly = false;
   const projectPath = `/${project.id}`;
   function patchAndRefresh(path, body) {
     errorBox.hidden = true;
@@ -346,10 +358,14 @@ function literature(project, left, aside, actions, remove) {
     drawerField('Cluster', topic ? topic.name
       : paper.clusterId === null || paper.clusterId === undefined ? 'Uncategorized'
       : `Cluster ${paper.clusterId + 1}`);
+    element('h3', 'Access & links', drawerPanel);
+    const access = element('p', '', drawerPanel, 'access-line');
+    access.append(accessBadge(paper.accessStatus));
+    element('span', ACCESS_LABEL[paper.accessStatus] || 'Access unknown', access, 'access-note');
     drawerField('DOI', paper.doi, {href: paper.doiUrl || (paper.doi && `https://doi.org/${paper.doi}`)});
     drawerField('Source', `View on ${paper.source}`, {href: paper.sourceUrl});
     drawerField('Publication', 'Open publication page', {href: paper.publicationUrl});
-    if (paper.openAccessUrl) drawerField('Open access', 'Open full text', {href: paper.openAccessUrl});
+    if (paper.openAccessUrl) drawerField('Free full text', 'Open the available copy', {href: paper.openAccessUrl});
     if (topic) explanationSection(paper, topic.name);
     element('h3', 'Abstract', drawerPanel);
     element('p', paper.abstract || 'No abstract is available for this paper.', drawerPanel,
@@ -396,7 +412,8 @@ function literature(project, left, aside, actions, remove) {
       if (completed.skippedCount) element('p', `${completed.skippedCount} provider records could not be normalized.`, papersBody, 'field-help');
       if (completed.duplicateCount) element('p', `${completed.duplicateCount} duplicate ${completed.duplicateCount === 1 ? 'record was' : 'records were'} merged by DOI, identifier, or title.`, papersBody, 'field-help');
       const topicCount = (subtopics || []).length;
-      element('p', `${papers.length} ${papers.length === 1 ? 'paper' : 'papers'} · ${topicCount || 'no'} ${topicCount === 1 ? 'subtopic' : 'subtopics'} · ${yearRange(completed.parameters)}`, papersBody, 'research-summary');
+      const oaCount = papers.filter(p => p.accessStatus === 'OPEN_ACCESS').length;
+      element('p', `${papers.length} ${papers.length === 1 ? 'paper' : 'papers'} · ${topicCount || 'no'} ${topicCount === 1 ? 'subtopic' : 'subtopics'} · ${oaCount} open access · ${yearRange(completed.parameters)}`, papersBody, 'research-summary');
     }
     if (!papers.length) {
       const empty = element('div', '', papersBody, 'empty-state');
@@ -408,13 +425,18 @@ function literature(project, left, aside, actions, remove) {
     }
     const named = new Map((subtopics || []).map(topic => [topic.clusterId, topic]));
     const setAside = papers.filter(p => p.isRelevant === false);
-    const visible = showSetAside ? papers : papers.filter(p => p.isRelevant !== false);
+    let visible = showSetAside ? papers : papers.filter(p => p.isRelevant !== false);
+    if (openAccessOnly) visible = visible.filter(p => p.accessStatus === 'OPEN_ACCESS');
+    const filters = element('div', '', papersBody, 'paper-filters');
     if (setAside.length) {
       const toggle = element('button', showSetAside
         ? `Hide ${setAside.length} set aside` : `Show ${setAside.length} set aside`,
-        papersBody, 'secondary set-aside-toggle');
+        filters, 'secondary set-aside-toggle');
       toggle.addEventListener('click', () => { showSetAside = !showSetAside; refresh().catch(showError); });
     }
+    const oaToggle = element('button', openAccessOnly ? 'All papers' : 'Open access only',
+      filters, `secondary set-aside-toggle${openAccessOnly ? ' active' : ''}`);
+    oaToggle.addEventListener('click', () => { openAccessOnly = !openAccessOnly; refresh().catch(showError); });
     const clusterIds = [...new Set(visible.map(paper => paper.clusterId))]
       .filter(id => id !== null && id !== undefined)
       .sort((a, b) => a - b);
@@ -499,7 +521,9 @@ function literature(project, left, aside, actions, remove) {
     if (paper.isRelevant === false) row.classList.add('set-aside');
     row.tabIndex = 0;
     row.setAttribute('role', 'button');
-    element('h3', paper.title || 'Title unavailable', row);
+    const titleRow = element('div', '', row, 'paper-title-row');
+    element('h3', paper.title || 'Title unavailable', titleRow);
+    titleRow.append(accessBadge(paper.accessStatus));
     const authors = paper.authors.map(author => author.name).filter(Boolean);
     const authorLabel = authors.length ? authors.slice(0, 3).join(', ') + (authors.length > 3 ? ' et al.' : '') : 'Authors unavailable';
     element('p', `${authorLabel} · ${paper.publicationYear ?? 'Year unavailable'}`, row, 'paper-metadata');

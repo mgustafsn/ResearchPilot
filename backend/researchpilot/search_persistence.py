@@ -162,9 +162,14 @@ class SearchRepository:
         insert = (
             postgres_insert if self.session.bind.dialect.name == "postgresql" else sqlite_insert
         )
+        columns = {column.name for column in PaperRow.__table__.columns}
         # Stable ordering prevents deadlocks when projects share works.
         for paper_id in sorted(unique):
-            values = unique[paper_id].paper.model_dump()
+            values = {
+                key: value
+                for key, value in unique[paper_id].paper.model_dump().items()
+                if key in columns
+            }
             if paper_id in fresh_vectors:
                 values["embedding"] = fresh_vectors[paper_id]
                 values["embeddingModel"] = model

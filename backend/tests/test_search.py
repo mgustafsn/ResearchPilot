@@ -426,6 +426,22 @@ def test_papers_and_subtopics_carry_manual_fields(search_client_named):
     assert client.get(url + "/subtopics").json()[0]["userModified"] is False
 
 
+def test_papers_carry_access_status(search_client):
+    client, provider, url = search_client
+    open_access = normalize_work(
+        WORK
+        | {
+            "id": "https://openalex.org/W7777",
+            "doi": "https://doi.org/10.1/oa",
+            "open_access": {"is_oa": True, "oa_url": "https://repo.example/w.pdf"},
+        }
+    )
+    provider.papers = [open_access, normalize_work(WORK)]
+    client.post(url + "/search")
+    statuses = {p["accessStatus"] for p in client.get(url + "/papers").json()}
+    assert statuses == {"OPEN_ACCESS", "ABSTRACT_ONLY"}
+
+
 def test_new_search_is_blocked_until_forced_when_edits_exist(search_client_named):
     client, provider, embedder, llm, url = search_client_named
     _named_search(client, provider, url)

@@ -4,7 +4,21 @@ from datetime import UTC, date, datetime
 from typing import Literal, Protocol
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
+
+AccessStatus = Literal["OPEN_ACCESS", "ABSTRACT_ONLY", "UNKNOWN"]
+
+
+def access_status(is_open_access, open_access_url, abstract) -> AccessStatus:
+    """Best-effort full-text availability from provider-reported fields only.
+
+    INSTITUTIONAL_ACCESS is reserved for future authenticated access and never returned.
+    """
+    if is_open_access or open_access_url:
+        return "OPEN_ACCESS"
+    if abstract:
+        return "ABSTRACT_ONLY"
+    return "UNKNOWN"
 
 
 class Author(BaseModel):
@@ -33,6 +47,11 @@ class Paper(BaseModel):
     publicationUrl: str | None = None
     openAccessUrl: str | None = None
     isOpenAccess: bool | None = None
+
+    @computed_field
+    @property
+    def accessStatus(self) -> AccessStatus:
+        return access_status(self.isOpenAccess, self.openAccessUrl, self.abstract)
 
 
 class ProjectPaper(Paper):
