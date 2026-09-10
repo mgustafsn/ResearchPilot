@@ -39,6 +39,8 @@ class ProjectPaper(Paper):
     relevanceScore: float = Field(ge=0, le=1)
     clusterId: int | None = None
     classificationExplanation: str | None = None
+    isRelevant: bool = True
+    userModified: bool = False
 
 
 class Subtopic(BaseModel):
@@ -47,6 +49,7 @@ class Subtopic(BaseModel):
     name: str
     description: str
     keywords: list[str] = Field(default_factory=list)
+    userModified: bool = False
 
 
 class SearchParameters(BaseModel):

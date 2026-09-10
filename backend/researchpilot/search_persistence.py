@@ -82,6 +82,7 @@ class SubtopicRow(Base):
     name: Mapped[str] = mapped_column(Text)
     description: Mapped[str] = mapped_column(Text)
     keywords: Mapped[list] = mapped_column(JSON)
+    userModified: Mapped[bool] = mapped_column(default=False)
 
 
 class ProjectPaperRow(Base):
@@ -95,6 +96,8 @@ class ProjectPaperRow(Base):
     relevanceScore: Mapped[float]
     clusterId: Mapped[int | None]
     classificationExplanation: Mapped[str | None] = mapped_column(Text)
+    isRelevant: Mapped[bool] = mapped_column(default=True)
+    userModified: Mapped[bool] = mapped_column(default=False)
 
 
 class SearchRepository:
@@ -122,21 +125,9 @@ class SearchRepository:
 
     def papers(self, project_id):
         return [
-            ProjectPaper.model_validate(
-                {
-                    **paper.__dict__,
-                    "relevanceScore": relevance_score,
-                    "clusterId": cluster_id,
-                    "classificationExplanation": explanation,
-                }
-            )
-            for paper, relevance_score, cluster_id, explanation in self.session.execute(
-                select(
-                    PaperRow,
-                    ProjectPaperRow.relevanceScore,
-                    ProjectPaperRow.clusterId,
-                    ProjectPaperRow.classificationExplanation,
-                )
+            ProjectPaper.model_validate({**paper.__dict__, **association.__dict__})
+            for paper, association in self.session.execute(
+                select(PaperRow, ProjectPaperRow)
                 .join(ProjectPaperRow, ProjectPaperRow.paperId == PaperRow.id)
                 .where(ProjectPaperRow.projectId == project_id)
                 .order_by(ProjectPaperRow.position)
@@ -208,6 +199,52 @@ class SearchRepository:
             )
         ]
 
+    def cluster_ids(self, project_id):
+        return set(
+            self.session.scalars(
+                select(ProjectPaperRow.clusterId)
+                .where(
+                    ProjectPaperRow.projectId == project_id,
+                    ProjectPaperRow.clusterId.is_not(None),
+                )
+                .distinct()
+            )
+        )
+
+    def rename_subtopic(self, project_id, cluster_id, name, description):
+        row = self.session.get(SubtopicRow, (project_id, cluster_id))
+        if row is None:
+            return None
+        row.name = name
+        row.description = description
+        row.userModified = True
+        self.session.flush()
+        return Subtopic.model_validate(row)
+
+    def update_paper_association(self, project_id, paper_id, changes):
+        row = self.session.get(ProjectPaperRow, (project_id, paper_id))
+        if row is None:
+            return None
+        for field, value in changes.items():
+            setattr(row, field, value)
+        row.userModified = True
+        self.session.flush()
+        return row
+
+    def has_manual_edits(self, project_id):
+        return bool(
+            self.session.scalar(
+                select(SubtopicRow.projectId)
+                .where(SubtopicRow.projectId == project_id, SubtopicRow.userModified)
+                .limit(1)
+            )
+            or self.session.scalar(
+                select(ProjectPaperRow.paperId)
+                .where(ProjectPaperRow.projectId == project_id, ProjectPaperRow.userModified)
+                .limit(1)
+            )
+        )
+
     def explanation_target(self, project_id, paper_id):
         row = self.session.execute(
             select(ProjectPaperRow, PaperRow)
@@ -264,6 +301,14 @@ class SearchConflict(Exception):
 
 class ExplanationUnavailable(Exception):
     """The requested paper has no named subtopic to explain membership in."""
+
+
+class ManualEditsPresent(Exception):
+    """A new search would replace the project's manual organization; pass force to proceed."""
+
+
+class UnknownCluster(Exception):
+    """A paper was asked to move to a cluster that does not exist in the project."""
 
 
 def expire_search(project, repository):

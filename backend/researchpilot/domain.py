@@ -32,6 +32,24 @@ class ProjectInput(BaseModel):
         return self
 
 
+class SubtopicPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    name: str = Field(min_length=1, max_length=80)
+    description: str = Field(default="", max_length=500)
+
+
+class PaperPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    clusterId: StrictInt | None = Field(default=None, ge=0)
+    isRelevant: bool | None = None
+
+    @model_validator(mode="after")
+    def at_least_one_field(self):
+        if "clusterId" not in self.model_fields_set and "isRelevant" not in self.model_fields_set:
+            raise ValueError("Provide clusterId or isRelevant")
+        return self
+
+
 class Project(ProjectInput):
     model_config = ConfigDict(from_attributes=True)
     id: UUID

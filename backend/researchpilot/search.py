@@ -17,9 +17,11 @@ from .papers import Paper, PaperProvider, ProviderError, SearchParameters, Searc
 from .persistence import ProjectRepository
 from .search_persistence import (
     ExplanationUnavailable,
+    ManualEditsPresent,
     SearchConflict,
     SearchRepository,
     SearchRunRow,
+    UnknownCluster,
     expire_search,
 )
 from .service import ProjectNotFound
@@ -69,12 +71,17 @@ class SearchService:
             raise ProjectNotFound()
         return project
 
-    def start(self, project_id):
+    def start(self, project_id, force=False):
         with Session(self.engine) as session, session.begin():
             project = self._project(session, project_id)
-            latest = expire_search(project, SearchRepository(session))
+            repository = SearchRepository(session)
+            latest = expire_search(project, repository)
             if latest and latest.status == "SEARCHING":
                 raise SearchConflict("A search is already running for this project.")
+            if not force and repository.has_manual_edits(project.id):
+                raise ManualEditsPresent(
+                    "This project has manual changes. Run the search again to replace them."
+                )
             params = SearchParameters(
                 query=project.researchQuestion,
                 yearFrom=project.yearFrom,
@@ -223,8 +230,8 @@ class SearchService:
             session.flush()
             return SearchRun.model_validate(latest)
 
-    async def search(self, project_id):
-        run = await asyncio.to_thread(self.start, project_id)
+    async def search(self, project_id, force=False):
+        run = await asyncio.to_thread(self.start, project_id, force)
         logger.info(
             "Search started project=%s run=%s provider=%s", project_id, run.id, self.provider.name
         )
@@ -273,6 +280,29 @@ class SearchService:
             if ProjectRepository(session).get(project_id) is None:
                 raise ProjectNotFound()
             return SearchRepository(session).subtopics(project_id)
+
+    def rename_subtopic(self, project_id, cluster_id, patch):
+        with Session(self.engine) as session, session.begin():
+            self._project(session, project_id)
+            renamed = SearchRepository(session).rename_subtopic(
+                project_id, cluster_id, patch.name, patch.description
+            )
+            if renamed is None:
+                raise ProjectNotFound()
+            return renamed
+
+    def update_paper(self, project_id, paper_id, patch):
+        with Session(self.engine) as session, session.begin():
+            self._project(session, project_id)
+            repository = SearchRepository(session)
+            changes = patch.model_dump(exclude_unset=True)
+            if "clusterId" in changes and changes["clusterId"] is not None:
+                if changes["clusterId"] not in repository.cluster_ids(project_id):
+                    raise UnknownCluster(f"Cluster {changes['clusterId']} is not in this project.")
+            updated = repository.update_paper_association(project_id, paper_id, changes)
+            if updated is None:
+                raise ProjectNotFound()
+            return next(p for p in repository.papers(project_id) if p.id == updated.paperId)
 
     def _explanation_input(self, project_id, paper_id):
         with Session(self.engine) as session:

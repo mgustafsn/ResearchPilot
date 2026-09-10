@@ -347,6 +347,97 @@ def test_new_search_clears_stored_explanations(search_client_named):
     assert all(p["classificationExplanation"] is None for p in client.get(url + "/papers").json())
 
 
+def _named_search(client, provider, url):
+    provider.papers = _grouped_papers()
+    client.post(url + "/search")
+
+
+def test_rename_subtopic_marks_it_modified(search_client_named):
+    client, provider, embedder, llm, url = search_client_named
+    _named_search(client, provider, url)
+    cluster_id = client.get(url + "/subtopics").json()[0]["clusterId"]
+    response = client.patch(
+        f"{url}/subtopics/{cluster_id}", json={"name": "  My Topic  ", "description": "Edited."}
+    )
+    assert response.status_code == 200
+    assert response.json()["name"] == "My Topic"
+    assert response.json()["description"] == "Edited."
+    assert response.json()["userModified"] is True
+    fetched = client.get(url + "/subtopics").json()
+    assert fetched[0]["name"] == "My Topic"
+    assert fetched[0]["userModified"] is True
+
+
+def test_rename_unknown_subtopic_is_404(search_client_named):
+    client, provider, embedder, llm, url = search_client_named
+    _named_search(client, provider, url)
+    assert client.patch(f"{url}/subtopics/99", json={"name": "x"}).status_code == 404
+
+
+def test_move_paper_between_clusters(search_client_named):
+    client, provider, embedder, llm, url = search_client_named
+    _named_search(client, provider, url)
+    papers = client.get(url + "/papers").json()
+    paper = papers[0]
+    target = next(p["clusterId"] for p in papers if p["clusterId"] != paper["clusterId"])
+    response = client.patch(f"{url}/papers/{paper['id']}", json={"clusterId": target})
+    assert response.status_code == 200
+    assert response.json()["clusterId"] == target
+    assert response.json()["userModified"] is True
+    moved = next(p for p in client.get(url + "/papers").json() if p["id"] == paper["id"])
+    assert moved["clusterId"] == target
+
+
+def test_move_paper_to_uncategorized_and_reject_unknown_cluster(search_client_named):
+    client, provider, embedder, llm, url = search_client_named
+    _named_search(client, provider, url)
+    paper_id = client.get(url + "/papers").json()[0]["id"]
+    assert (
+        client.patch(f"{url}/papers/{paper_id}", json={"clusterId": None}).json()["clusterId"]
+        is None
+    )
+    assert client.patch(f"{url}/papers/{paper_id}", json={"clusterId": 99}).status_code == 422
+
+
+def test_mark_paper_irrelevant(search_client_named):
+    client, provider, embedder, llm, url = search_client_named
+    _named_search(client, provider, url)
+    paper_id = client.get(url + "/papers").json()[0]["id"]
+    response = client.patch(f"{url}/papers/{paper_id}", json={"isRelevant": False})
+    assert response.json()["isRelevant"] is False
+    assert response.json()["userModified"] is True
+    fetched = next(p for p in client.get(url + "/papers").json() if p["id"] == paper_id)
+    assert fetched["isRelevant"] is False
+
+
+def test_patch_paper_validation(search_client_named):
+    client, provider, embedder, llm, url = search_client_named
+    _named_search(client, provider, url)
+    paper_id = client.get(url + "/papers").json()[0]["id"]
+    assert client.patch(f"{url}/papers/{paper_id}", json={}).status_code == 422
+    assert client.patch(f"{url}/papers/{uuid4()}", json={"isRelevant": False}).status_code == 404
+
+
+def test_papers_and_subtopics_carry_manual_fields(search_client_named):
+    client, provider, embedder, llm, url = search_client_named
+    _named_search(client, provider, url)
+    paper = client.get(url + "/papers").json()[0]
+    assert paper["isRelevant"] is True and paper["userModified"] is False
+    assert client.get(url + "/subtopics").json()[0]["userModified"] is False
+
+
+def test_new_search_is_blocked_until_forced_when_edits_exist(search_client_named):
+    client, provider, embedder, llm, url = search_client_named
+    _named_search(client, provider, url)
+    cluster_id = client.get(url + "/subtopics").json()[0]["clusterId"]
+    client.patch(f"{url}/subtopics/{cluster_id}", json={"name": "Renamed"})
+    blocked = client.post(url + "/search")
+    assert blocked.status_code == 409
+    assert client.post(url + "/search?force=true").status_code == 200
+    assert all(not s["userModified"] for s in client.get(url + "/subtopics").json())
+    assert all(not p["userModified"] for p in client.get(url + "/papers").json())
+
+
 def test_search_reports_pipeline_stages(search_client_named, monkeypatch):
     client, provider, embedder, llm, url = search_client_named
     provider.papers = _grouped_papers()

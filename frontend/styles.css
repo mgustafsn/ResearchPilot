@@ -186,3 +186,15 @@ textarea { resize: vertical; min-height: 120px; }
 .drawer-panel h3 { margin: 22px 0 8px; }
 .drawer-abstract { font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; white-space: pre-wrap; }
 .drawer-retry { padding: 4px 12px; margin-top: 8px; display: inline-flex; }
+.drawer-organize { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 0 0 18px; padding: 12px; background: #f5f8fc; border-radius: 8px; font-size: 12px; }
+.drawer-organize label { color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+.drawer-organize select { width: auto; padding: 6px 8px; }
+.drawer-organize button { padding: 6px 12px; }
+.set-aside-toggle { padding: 6px 12px; margin-bottom: 14px; font-size: 12px; }
+.paper-row.set-aside { opacity: .55; }
+.subtopic-header { margin-bottom: 16px; }
+.subtopic-header .cluster-description { margin-bottom: 8px; }
+.edit-name { padding: 4px 12px; margin-top: 10px; font-size: 12px; }
+.edit-tag { margin-left: 8px; font-size: 10px; letter-spacing: .3px; text-transform: uppercase; color: var(--blue); background: #e8eeff; border-radius: 10px; padding: 1px 7px; }
+.rename-form input, .rename-form textarea { margin-bottom: 8px; }
+.rename-form textarea { min-height: 70px; }

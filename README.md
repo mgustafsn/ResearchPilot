@@ -1,11 +1,12 @@
 # ResearchPilot
 
-Phases 1–7: manage research projects, retrieve real scholarly papers from OpenAlex,
+Phases 1–8: manage research projects, retrieve real scholarly papers from OpenAlex,
 deduplicate and relevance-rank them with deterministic algorithms, embed and cluster
 them into groups, have an LLM name each cluster and explain why a paper belongs in
-it, and browse the result as a research map with staged search progress and a
-paper-detail drawer. Python 3.12+, FastAPI, SQLAlchemy, PostgreSQL, NumPy, OpenAI
-(embeddings + a chat model), and a same-origin vanilla JavaScript frontend.
+it, browse the result as a research map with staged search progress and a
+paper-detail drawer, and manually rename subtopics, move papers, and set papers
+aside. Python 3.12+, FastAPI, SQLAlchemy, PostgreSQL, NumPy, OpenAI (embeddings + a
+chat model), and a same-origin vanilla JavaScript frontend.
 
 ## Run locally
 
@@ -23,13 +24,14 @@ docker compose exec -T db psql -U researchpilot -d researchpilot -v ON_ERROR_STO
 docker compose exec -T db psql -U researchpilot -d researchpilot -v ON_ERROR_STOP=1 < migrations/005_subtopics.sql
 docker compose exec -T db psql -U researchpilot -d researchpilot -v ON_ERROR_STOP=1 < migrations/006_search_stage.sql
 docker compose exec -T db psql -U researchpilot -d researchpilot -v ON_ERROR_STOP=1 < migrations/007_classification_explanations.sql
+docker compose exec -T db psql -U researchpilot -d researchpilot -v ON_ERROR_STOP=1 < migrations/008_manual_edits.sql
 uv run --env-file .env uvicorn researchpilot.api:app --host 127.0.0.1 --reload
 ```
 
 Open http://127.0.0.1:8000. API documentation is at `/docs`.
 Apply each numbered SQL migration once, in order; rerunning one fails without
 changing existing tables. When upgrading, apply only the migrations after your last
-applied number (for example, from Phase 6, apply only `007_classification_explanations.sql`).
+applied number (for example, from Phase 7, apply only `008_manual_edits.sql`).
 Database startup never silently creates tables. Set `OPENAI_API_KEY` in `.env` before
 running a search — see [Phase 4](#phase-4-embed-and-cluster).
 Docker's named volume persists projects across restarts. The Compose password is
@@ -313,3 +315,40 @@ precompute, nothing for Uncategorized papers, no regenerate beyond retry-on-erro
 and the prompt gets the subtopic name but not its description.
 
 Implementation details: [Phase 7](docs/phase-7.md).
+
+## Phase 8: manual organization
+
+Three edits to the AI's organization, none of which regenerate anything:
+
+- `PATCH /api/projects/{uuid}/subtopics/{clusterId}` — `{name (1–80), description?
+  (≤500)}` renames a subtopic and marks it `userModified`. `404` if that cluster has
+  no subtopic.
+- `PATCH /api/projects/{uuid}/papers/{paperId}` — `{clusterId?, isRelevant?}` (at
+  least one). `clusterId` moves the paper to an existing cluster in the project or
+  `null` for Uncategorized (`422` otherwise); `isRelevant: false` sets it aside.
+  Either marks the association `userModified`. `404` for an unknown paper.
+- `GET .../papers` now carries `isRelevant` and `userModified`; `GET .../subtopics`
+  carries `userModified`.
+
+`008_manual_edits.sql` adds `project_papers.isRelevant` / `.userModified` and
+`subtopics.userModified` (added with a default, then the default dropped).
+
+Manual edits are not merged across a re-clustering. `POST .../search` returns `409`
+with `code: MANUAL_EDITS_PRESENT` when the project has any `userModified` subtopic or
+paper; `POST .../search?force=true` proceeds and `replace_papers` /
+`replace_subtopics` discard the edits as part of the normal replacement. The
+frontend surfaces the `409` as "this project has manual changes — a new search will
+replace them" with a **Run anyway** button.
+
+In the UI: a **Rename subtopic** control on the selected cluster (with an "edited"
+tag once changed), and, in the paper drawer, a subtopic `<select>` and a
+Set aside / Restore button. Set-aside papers are hidden behind a
+"Show N set aside" toggle and dimmed when shown; cluster tab counts follow the
+visible papers.
+
+Deliberate omissions: no create / delete / merge subtopics (needs subtopic
+identities independent of the k-means labels — a later phase), no undo or edit
+history, no per-edit attribution, and edits are discarded on re-search after
+confirmation rather than reconciled.
+
+Implementation details: [Phase 8](docs/phase-8.md).

@@ -12,14 +12,19 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from .config import database_url, openai_headers, openalex_headers
-from .domain import Project, ProjectInput
+from .domain import PaperPatch, Project, ProjectInput, SubtopicPatch
 from .persistence import ProjectRepository
 from .service import ProjectNotFound, ProjectService
 from .papers import ProjectPaper, ProviderError, SearchRun, Subtopic
 from .providers.openai import OpenAIEmbeddingProvider, OpenAILlmProvider
 from .providers.openalex import OpenAlexProvider
 from .search import SearchService
-from .search_persistence import ExplanationUnavailable, SearchConflict
+from .search_persistence import (
+    ExplanationUnavailable,
+    ManualEditsPresent,
+    SearchConflict,
+    UnknownCluster,
+)
 
 FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
 
@@ -95,6 +100,16 @@ def create_app(engine=None, provider=None, embedding_provider=None, llm_provider
     async def explanation_unavailable(request, exc):
         return JSONResponse(status_code=422, content={"detail": str(exc)})
 
+    @app.exception_handler(UnknownCluster)
+    async def unknown_cluster(request, exc):
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+    @app.exception_handler(ManualEditsPresent)
+    async def manual_edits_present(request, exc):
+        return JSONResponse(
+            status_code=409, content={"detail": str(exc), "code": "MANUAL_EDITS_PRESENT"}
+        )
+
     @app.exception_handler(ProviderError)
     async def provider_error(request, exc):
         status = (
@@ -118,8 +133,8 @@ def create_app(engine=None, provider=None, embedding_provider=None, llm_provider
         return JSONResponse(status_code=status, content={"detail": str(exc), "code": exc.code})
 
     @app.post("/api/projects/{project_id}/search", response_model=SearchRun)
-    async def search_project(project_id: UUID):
-        return await app.state.search.search(project_id)
+    async def search_project(project_id: UUID, force: bool = False):
+        return await app.state.search.search(project_id, force)
 
     @app.get("/api/projects/{project_id}/searches", response_model=list[SearchRun])
     def search_history(project_id: UUID):
@@ -136,6 +151,14 @@ def create_app(engine=None, provider=None, embedding_provider=None, llm_provider
     @app.post("/api/projects/{project_id}/papers/{paper_id}/explanation")
     async def paper_explanation(project_id: UUID, paper_id: UUID):
         return {"explanation": await app.state.search.explain(project_id, paper_id)}
+
+    @app.patch("/api/projects/{project_id}/subtopics/{cluster_id}", response_model=Subtopic)
+    def rename_subtopic(project_id: UUID, cluster_id: int, patch: SubtopicPatch):
+        return app.state.search.rename_subtopic(project_id, cluster_id, patch)
+
+    @app.patch("/api/projects/{project_id}/papers/{paper_id}", response_model=ProjectPaper)
+    def update_paper(project_id: UUID, paper_id: UUID, patch: PaperPatch):
+        return app.state.search.update_paper(project_id, paper_id, patch)
 
     app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
 

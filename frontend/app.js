@@ -46,9 +46,12 @@ async function api(path = '', options = {}) {
   const response = await fetch(`/api/projects${path}`, options);
   if (!response.ok) {
     const body = await response.json();
-    throw new Error(Array.isArray(body.detail)
+    const error = new Error(Array.isArray(body.detail)
       ? body.detail.map(e => `${e.loc.slice(1).join('.')}: ${e.msg}`).join('; ')
       : body.detail || 'Request failed');
+    error.code = body.code;
+    error.status = response.status;
+    throw error;
   }
   return response.status === 204 ? null : response.json();
 }
@@ -258,7 +261,14 @@ function literature(project, left, aside, actions, remove) {
   let busy = false;
   let timer;
   let displayedRunId;
+  let showSetAside = false;
   const projectPath = `/${project.id}`;
+  function patchAndRefresh(path, body) {
+    errorBox.hidden = true;
+    return api(path, {method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)})
+      .then(() => refresh())
+      .catch(showError);
+  }
   const editLink = actions.querySelector('a');
   editLink.classList.add('secondary');
   function setBusy(value) {
@@ -297,13 +307,34 @@ function literature(project, left, aside, actions, remove) {
       anchor.rel = 'noopener noreferrer';
     }
   }
-  function openDrawer(paper, named) {
+  function openDrawer(paper, named, clusterOptions) {
     drawerReturnFocus = document.activeElement;
     drawerPanel.replaceChildren();
     const head = element('div', '', drawerPanel, 'drawer-head');
     element('span', 'Paper details', head, 'query-label');
     element('button', 'Close', head, 'secondary').addEventListener('click', closeDrawer);
     element('h2', paper.title || 'Title unavailable', drawerPanel, 'drawer-title');
+    if (clusterOptions && clusterOptions.length) {
+      const organize = element('div', '', drawerPanel, 'drawer-organize');
+      const moveLabel = element('label', 'Subtopic ', organize);
+      const move = element('select', '', moveLabel);
+      for (const option of clusterOptions) {
+        const el = element('option', option.label, move);
+        el.value = option.id === null ? '' : String(option.id);
+      }
+      move.value = paper.clusterId === null || paper.clusterId === undefined ? '' : String(paper.clusterId);
+      move.addEventListener('change', () => {
+        patchAndRefresh(`${projectPath}/papers/${paper.id}`,
+          {clusterId: move.value === '' ? null : Number(move.value)});
+        closeDrawer();
+      });
+      const relevance = element('button', paper.isRelevant === false ? 'Restore to results' : 'Set aside as irrelevant',
+        organize, 'secondary');
+      relevance.addEventListener('click', () => {
+        patchAndRefresh(`${projectPath}/papers/${paper.id}`, {isRelevant: paper.isRelevant === false});
+        closeDrawer();
+      });
+    }
     const authors = paper.authors.map(author => author.name).filter(Boolean);
     drawerField('Authors', authors.length ? authors.join(', ') : 'Not available');
     drawerField('Published', [paper.publicationDate || paper.publicationYear, paper.venue || paper.journal]
@@ -376,18 +407,28 @@ function literature(project, left, aside, actions, remove) {
       return;
     }
     const named = new Map((subtopics || []).map(topic => [topic.clusterId, topic]));
-    const clusterIds = [...new Set(papers.map(paper => paper.clusterId))]
+    const setAside = papers.filter(p => p.isRelevant === false);
+    const visible = showSetAside ? papers : papers.filter(p => p.isRelevant !== false);
+    if (setAside.length) {
+      const toggle = element('button', showSetAside
+        ? `Hide ${setAside.length} set aside` : `Show ${setAside.length} set aside`,
+        papersBody, 'secondary set-aside-toggle');
+      toggle.addEventListener('click', () => { showSetAside = !showSetAside; refresh().catch(showError); });
+    }
+    const clusterIds = [...new Set(visible.map(paper => paper.clusterId))]
       .filter(id => id !== null && id !== undefined)
       .sort((a, b) => a - b);
     const groups = clusterIds.map(id => ({
+      id,
       name: named.get(id)?.name || `Cluster ${id + 1}`,
       topic: named.get(id) || null,
-      members: papers.filter(p => p.clusterId === id),
+      members: visible.filter(p => p.clusterId === id),
     }));
-    const uncategorized = papers.filter(p => p.clusterId === null || p.clusterId === undefined);
-    if (uncategorized.length) groups.push({name: 'Uncategorized', topic: null, members: uncategorized});
+    const uncategorized = visible.filter(p => p.clusterId === null || p.clusterId === undefined);
+    if (uncategorized.length) groups.push({id: null, name: 'Uncategorized', topic: null, members: uncategorized});
+    const clusterOptions = groups.map(group => ({id: group.id, label: group.name}));
     if (groups.length < 2) {
-      for (const paper of papers) paperRow(paper, papersBody, named);
+      for (const paper of visible) paperRow(paper, papersBody, named, clusterOptions);
       return;
     }
     if (completed && completed.namingError) {
@@ -399,7 +440,7 @@ function literature(project, left, aside, actions, remove) {
     let active = null;
     const allButton = element('button', '', tabRow, 'cluster-tab');
     element('span', 'All', allButton);
-    element('span', String(papers.length), allButton, 'count');
+    element('span', String(visible.length), allButton, 'count');
     allButton.addEventListener('click', () => select(null));
     const buttons = groups.map((group, index) => {
       const button = element('button', '', tabRow, 'cluster-tab');
@@ -415,19 +456,47 @@ function literature(project, left, aside, actions, remove) {
       detail.replaceChildren();
       list.replaceChildren();
       const group = index === null ? null : groups[index];
-      if (group && group.topic) {
-        element('p', group.topic.description, detail, 'cluster-description');
-        if (group.topic.keywords.length) {
-          const keywords = element('div', '', detail, 'keyword-list');
-          for (const keyword of group.topic.keywords) element('span', keyword, keywords, 'keyword');
-        }
-      }
-      for (const paper of group ? group.members : papers) paperRow(paper, list, named);
+      if (group && group.topic) subtopicHeader(group.topic, detail);
+      for (const paper of group ? group.members : visible) paperRow(paper, list, named, clusterOptions);
     }
     select(null);
   }
-  function paperRow(paper, parent, named) {
+  function subtopicHeader(topic, wrap) {
+    wrap.replaceChildren();
+    const text = element('p', topic.description, wrap, 'cluster-description');
+    if (topic.userModified) element('span', 'edited', text, 'edit-tag');
+    if (topic.keywords.length) {
+      const keywords = element('div', '', wrap, 'keyword-list');
+      for (const keyword of topic.keywords) element('span', keyword, keywords, 'keyword');
+    }
+    const editButton = element('button', 'Rename subtopic', wrap, 'secondary edit-name');
+    editButton.addEventListener('click', () => {
+      wrap.replaceChildren();
+      const form = element('form', '', wrap, 'rename-form');
+      const name = element('input', '', form);
+      name.value = topic.name;
+      name.required = true;
+      name.maxLength = 80;
+      const description = element('textarea', '', form);
+      description.value = topic.description;
+      description.maxLength = 500;
+      const formActions = element('div', '', form, 'form-actions');
+      element('button', 'Save', formActions);
+      element('button', 'Cancel', formActions, 'secondary').addEventListener('click', event => {
+        event.preventDefault();
+        subtopicHeader(topic, wrap);
+      });
+      form.addEventListener('submit', event => {
+        event.preventDefault();
+        patchAndRefresh(`${projectPath}/subtopics/${topic.clusterId}`,
+          {name: name.value, description: description.value});
+      });
+      name.focus();
+    });
+  }
+  function paperRow(paper, parent, named, clusterOptions) {
     const row = element('article', '', parent, 'project-row paper-row');
+    if (paper.isRelevant === false) row.classList.add('set-aside');
     row.tabIndex = 0;
     row.setAttribute('role', 'button');
     element('h3', paper.title || 'Title unavailable', row);
@@ -440,7 +509,7 @@ function literature(project, left, aside, actions, remove) {
     element('span', `Relevance: ${Math.round((paper.relevanceScore ?? 0) * 100)}% · Citations: ${paper.citationCount ?? 'Unavailable'} · ${paper.source}`, footer);
     const details = element('span', 'View details', footer, 'open-link');
     details.append(icon('arrow'));
-    const open = () => openDrawer(paper, named);
+    const open = () => openDrawer(paper, named, clusterOptions);
     row.addEventListener('click', event => { if (!event.target.closest('a')) open(); });
     row.addEventListener('keydown', event => {
       if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); }
@@ -488,20 +557,28 @@ function literature(project, left, aside, actions, remove) {
     }
     if (busy) timer = setTimeout(() => refresh().catch(showError), 2000);
   }
-  searchButton.addEventListener('click', async () => {
+  async function runSearch(force) {
     clearTimeout(timer);
     setBusy(true);
     errorBox.hidden = true;
     searchBody.replaceChildren();
     element('p', 'Searching OpenAlex. This can take up to a minute…', searchBody, 'search-status');
     try {
-      await api(`${projectPath}/search`, {method: 'POST'});
-    } catch (error) { showError(error); }
-    finally {
-      setBusy(false);
-      try { await refresh(); } catch (error) { showError(error); }
+      await api(`${projectPath}/search${force ? '?force=true' : ''}`, {method: 'POST'});
+    } catch (error) {
+      if (error.code === 'MANUAL_EDITS_PRESENT') {
+        setBusy(false);
+        searchBody.replaceChildren();
+        element('p', 'This project has manual changes. A new search will replace them.', searchBody, 'search-failure');
+        element('button', 'Run anyway', searchBody, 'secondary').addEventListener('click', () => runSearch(true));
+        return;
+      }
+      showError(error);
     }
-  });
+    setBusy(false);
+    try { await refresh(); } catch (error) { showError(error); }
+  }
+  searchButton.addEventListener('click', () => runSearch(false));
   refresh().catch(error => {
     papersBody.replaceChildren();
     element('p', 'Unable to load saved papers. Refresh to try again.', papersBody, 'muted');
