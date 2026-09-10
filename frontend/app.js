@@ -295,13 +295,21 @@ function literature(project, left, aside, actions, remove) {
       for (const paper of papers) paperRow(paper, papersBody);
       return;
     }
-    for (const [name, members] of groups) {
-      const section = element('details', '', papersBody, 'cluster-group');
-      const summary = element('summary', '', section);
-      element('span', name, summary);
-      element('span', String(members.length), summary, 'count');
-      for (const paper of members) paperRow(paper, section);
+    const tabRow = element('div', '', papersBody, 'cluster-tabs');
+    const list = element('div', '', papersBody);
+    const buttons = groups.map(([name, members], index) => {
+      const button = element('button', '', tabRow, 'cluster-tab');
+      element('span', name, button);
+      element('span', String(members.length), button, 'count');
+      button.addEventListener('click', () => select(index));
+      return button;
+    });
+    function select(index) {
+      buttons.forEach((button, i) => button.classList.toggle('active', i === index));
+      list.replaceChildren();
+      for (const paper of groups[index][1]) paperRow(paper, list);
     }
+    select(0);
   }
   function paperRow(paper, parent) {
     const row = element('article', '', parent, 'project-row paper-row');

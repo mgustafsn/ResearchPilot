@@ -20,8 +20,9 @@ This document describes implemented behavior without changing the roadmap scope.
 - `papers.py`: `ProjectPaper` gains `clusterId`; `SearchRun` gains `clusterCount`.
 - `api.py`: a second HTTP client with the OpenAI key, an `embedding_provider`
   parameter, and the new `503` error codes.
-- `frontend/app.js`: the papers list is grouped by cluster with an Uncategorized
-  section; the search status line reports the cluster count.
+- `frontend/app.js`: the papers list gets one tab per cluster plus an Uncategorized
+  tab when more than one group exists; the search status line reports the cluster
+  count.
 
 Retrieval, the OpenAlex query, filters, and the claim/lease mechanics are unchanged
 from Phases 2–3. Ranking still orders `GET .../papers`; clustering only annotates.

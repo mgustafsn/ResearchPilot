@@ -210,8 +210,7 @@ cluster count by mean silhouette. Small clusters and points far from their centr
 become **Uncategorized** (`clusterId` null). Kept clusters are relabeled by
 descending size, so the assignment is stable for a given set of vectors. The
 completed run reports `clusterCount`; `GET .../papers` carries each paper's
-`clusterId`, and the frontend groups the list by cluster with an Uncategorized
-section.
+`clusterId`, and the frontend shows one tab per cluster, plus an Uncategorized tab.
 
 `004_embeddings_clusters.sql` adds `papers.embedding` / `papers.embeddingModel`,
 `project_papers.clusterId`, and `search_runs.clusterCount` without rewriting rows;
