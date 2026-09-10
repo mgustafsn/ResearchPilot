@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
+from .analysis import deduplicate, rank_papers
 from .papers import PaperProvider, ProviderError, SearchParameters, SearchRun
 from .persistence import ProjectRepository
 from .search_persistence import SearchRepository, SearchRunRow, SearchConflict, expire_search
@@ -50,6 +51,7 @@ class SearchService:
                 startedAt=datetime.now(UTC),
                 paperCount=0,
                 skippedCount=0,
+                duplicateCount=0,
             )
             session.add(run)
             project.status = "SEARCHING"
@@ -68,9 +70,12 @@ class SearchService:
                 latest.errorCode = error.code
                 latest.errorMessage = str(error)
             else:
-                latest.paperCount = repository.replace_papers(project.id, run.id, result.papers)
+                deduplicated, duplicate_count = deduplicate(result.papers)
+                ranked = rank_papers(deduplicated, run.researchQuestion, run.keywords)
+                latest.paperCount = repository.replace_papers(project.id, run.id, ranked)
                 latest.totalFound = result.totalFound
                 latest.skippedCount = result.skippedCount
+                latest.duplicateCount = duplicate_count
                 latest.status = "COMPLETED"
             latest.finishedAt = datetime.now(UTC)
             project.status = latest.status

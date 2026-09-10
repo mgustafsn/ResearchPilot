@@ -15,7 +15,7 @@ from .config import database_url, openalex_headers
 from .domain import Project, ProjectInput
 from .persistence import ProjectRepository
 from .service import ProjectNotFound, ProjectService
-from .papers import Paper, ProviderError, SearchRun
+from .papers import ProjectPaper, ProviderError, SearchRun
 from .providers.openalex import OpenAlexProvider
 from .search import SearchService
 from .search_persistence import SearchConflict
@@ -101,7 +101,7 @@ def create_app(engine=None, provider=None):
     def search_history(project_id: UUID):
         return app.state.search.history(project_id)
 
-    @app.get("/api/projects/{project_id}/papers", response_model=list[Paper])
+    @app.get("/api/projects/{project_id}/papers", response_model=list[ProjectPaper])
     def project_papers(project_id: UUID):
         return app.state.search.papers(project_id)
 

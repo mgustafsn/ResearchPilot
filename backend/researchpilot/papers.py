@@ -35,6 +35,10 @@ class Paper(BaseModel):
     isOpenAccess: bool | None = None
 
 
+class ProjectPaper(Paper):
+    relevanceScore: float = Field(ge=0, le=1)
+
+
 class SearchParameters(BaseModel):
     query: str
     yearFrom: int | None = None
@@ -62,6 +66,7 @@ class SearchRun(BaseModel):
     totalFound: int | None = None
     paperCount: int = 0
     skippedCount: int = 0
+    duplicateCount: int = 0
     errorCode: str | None = None
     errorMessage: str | None = None
 

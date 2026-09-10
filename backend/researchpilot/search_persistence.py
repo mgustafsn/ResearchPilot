@@ -16,7 +16,8 @@ from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Mapped, mapped_column
 
-from .papers import Paper, ProviderError, SearchRun
+from .analysis import RankedPaper
+from .papers import ProjectPaper, ProviderError, SearchRun
 from .persistence import Base
 
 
@@ -59,6 +60,7 @@ class SearchRunRow(Base):
     totalFound: Mapped[int | None]
     paperCount: Mapped[int]
     skippedCount: Mapped[int]
+    duplicateCount: Mapped[int]
     errorCode: Mapped[str | None] = mapped_column(String(32))
     errorMessage: Mapped[str | None] = mapped_column(Text)
 
@@ -71,6 +73,7 @@ class ProjectPaperRow(Base):
     paperId: Mapped[UUID] = mapped_column(ForeignKey("papers.id"), primary_key=True)
     searchRunId: Mapped[UUID] = mapped_column(ForeignKey("search_runs.id", ondelete="CASCADE"))
     position: Mapped[int]
+    relevanceScore: Mapped[float]
 
 
 class SearchRepository:
@@ -98,26 +101,24 @@ class SearchRepository:
 
     def papers(self, project_id):
         return [
-            Paper.model_validate(row)
-            for row in self.session.scalars(
-                select(PaperRow)
+            ProjectPaper.model_validate({**paper.__dict__, "relevanceScore": relevance_score})
+            for paper, relevance_score in self.session.execute(
+                select(PaperRow, ProjectPaperRow.relevanceScore)
                 .join(ProjectPaperRow, ProjectPaperRow.paperId == PaperRow.id)
                 .where(ProjectPaperRow.projectId == project_id)
                 .order_by(ProjectPaperRow.position)
             )
         ]
 
-    def replace_papers(self, project_id, run_id, papers):
+    def replace_papers(self, project_id, run_id, ranked_papers: list[RankedPaper]):
         self.session.execute(delete(ProjectPaperRow).where(ProjectPaperRow.projectId == project_id))
-        # Stable provider identities make retries idempotent. Cross-provider DOI/title
-        # matching and scholarly deduplication belong to Phase 3.
-        unique = {paper.id: paper for paper in papers}
+        unique = {item.paper.id: item for item in ranked_papers}
         insert = (
             postgres_insert if self.session.bind.dialect.name == "postgresql" else sqlite_insert
         )
         # Stable ordering prevents deadlocks when projects share works.
         for paper_id in sorted(unique):
-            values = unique[paper_id].model_dump()
+            values = unique[paper_id].paper.model_dump()
             statement = insert(PaperRow).values(**values)
             self.session.execute(
                 statement.on_conflict_do_update(
@@ -127,9 +128,13 @@ class SearchRepository:
             )
         self.session.add_all(
             ProjectPaperRow(
-                projectId=project_id, paperId=paper_id, searchRunId=run_id, position=position
+                projectId=project_id,
+                paperId=item.paper.id,
+                searchRunId=run_id,
+                position=position,
+                relevanceScore=item.relevance_score,
             )
-            for position, paper_id in enumerate(unique)
+            for position, item in enumerate(unique.values())
         )
         return len(unique)
 

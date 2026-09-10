@@ -275,6 +275,7 @@ function literature(project, left, aside, actions, remove) {
         ? 'These results use earlier project details. Run a new search to update them.'
         : `Retrieved from ${completed.provider} on ${date(completed.finishedAt)}.`, papersBody, 'field-help');
       if (completed.skippedCount) element('p', `${completed.skippedCount} provider records could not be normalized.`, papersBody, 'field-help');
+      if (completed.duplicateCount) element('p', `${completed.duplicateCount} duplicate ${completed.duplicateCount === 1 ? 'record was' : 'records were'} merged by DOI, identifier, or title.`, papersBody, 'field-help');
     }
     if (!papers.length) {
       const empty = element('div', '', papersBody, 'empty-state');
@@ -293,7 +294,7 @@ function literature(project, left, aside, actions, remove) {
       if (paper.venue) element('p', paper.venue, row, 'paper-metadata');
       if (paper.doi) element('p', `DOI: ${paper.doi}`, row, 'paper-doi');
       const footer = element('div', '', row, 'project-meta');
-      element('span', `Citations: ${paper.citationCount ?? 'Unavailable'} · ${paper.source}`, footer);
+      element('span', `Relevance: ${Math.round((paper.relevanceScore ?? 0) * 100)}% · Citations: ${paper.citationCount ?? 'Unavailable'} · ${paper.source}`, footer);
       const source = link('View source', paper.sourceUrl, footer, 'open-link');
       source.target = '_blank';
       source.rel = 'noopener noreferrer';

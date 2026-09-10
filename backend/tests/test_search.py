@@ -62,6 +62,7 @@ def test_search_persists_real_metadata_and_snapshot(search_client, engine):
     }
     assert run["keywords"] == DATA["keywords"]
     assert run["paperCount"] == 1
+    assert run["duplicateCount"] == 0
     assert run["startedAt"] and run["finishedAt"]
     papers = client.get(url + "/papers").json()
     assert papers[0]["title"] == WORK["title"]
@@ -70,7 +71,7 @@ def test_search_persists_real_metadata_and_snapshot(search_client, engine):
     assert client.get(url + "/searches").json()[0] == run
     with TestClient(create_app(engine, provider)) as restarted:
         assert restarted.get(url + "/papers").json() == papers
-    assert "relevanceScore" not in papers[0]
+    assert 0 <= papers[0]["relevanceScore"] <= 1
 
 
 def test_repeated_search_and_shared_papers(search_client, engine):
@@ -88,6 +89,45 @@ def test_repeated_search_and_shared_papers(search_client, engine):
     with Session(engine) as session:
         assert session.scalar(select(func.count()).select_from(SearchRunRow)) == 1
         assert session.scalar(select(func.count()).select_from(ProjectPaperRow)) == 1
+
+
+def test_search_deduplicates_ranks_and_persists_counts(search_client):
+    client, provider, url = search_client
+    relevant = normalize_work(
+        WORK
+        | {
+            "id": "https://openalex.org/W100",
+            "doi": "https://doi.org/10.1000/shared",
+            "title": "Large language models for software engineering",
+        }
+    )
+    duplicate = normalize_work(
+        WORK
+        | {
+            "id": "https://openalex.org/W101",
+            "doi": "https://doi.org/10.1000/SHARED",
+            "title": "A less complete duplicate",
+            "abstract_inverted_index": None,
+        }
+    )
+    unrelated = normalize_work(
+        WORK
+        | {
+            "id": "https://openalex.org/W102",
+            "doi": "https://doi.org/10.1000/other",
+            "title": "Marine biology observations",
+            "abstract_inverted_index": None,
+            "cited_by_count": 0,
+        }
+    )
+    provider.papers = [unrelated, duplicate, relevant]
+    response = client.post(url + "/search")
+    assert response.status_code == 200
+    assert response.json()["duplicateCount"] == 1
+    assert response.json()["paperCount"] == 2
+    papers = client.get(url + "/papers").json()
+    assert [item["doi"] for item in papers] == ["10.1000/shared", "10.1000/other"]
+    assert papers[0]["relevanceScore"] > papers[1]["relevanceScore"]
 
 
 def test_failure_preserves_previous_results(search_client):
