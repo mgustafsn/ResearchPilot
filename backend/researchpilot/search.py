@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from .analysis import RankedPaper, deduplicate, rank_papers
 from .clustering import cluster_papers
 from .embeddings import EmbeddingProvider
+from .llm import ClusterNaming, LlmProvider, PaperBrief
 from .papers import Paper, PaperProvider, ProviderError, SearchParameters, SearchRun
 from .persistence import ProjectRepository
 from .search_persistence import SearchConflict, SearchRepository, SearchRunRow, expire_search
@@ -19,6 +20,8 @@ from .service import ProjectNotFound
 logger = logging.getLogger(__name__)
 SEARCH_TIMEOUT_SECONDS = 60
 EMBEDDING_TIMEOUT_SECONDS = 60
+NAMING_TIMEOUT_SECONDS = 30
+NAMING_SAMPLE = 6
 
 
 @dataclass
@@ -31,6 +34,8 @@ class CompletedSearch:
     model: str
     clusters: dict[UUID, int | None]
     cluster_count: int
+    subtopics: dict[int, ClusterNaming]
+    naming_error: str | None
 
 
 def _embedding_text(paper: Paper) -> str:
@@ -39,10 +44,17 @@ def _embedding_text(paper: Paper) -> str:
 
 
 class SearchService:
-    def __init__(self, engine, provider: PaperProvider, embedding_provider: EmbeddingProvider):
+    def __init__(
+        self,
+        engine,
+        provider: PaperProvider,
+        embedding_provider: EmbeddingProvider,
+        llm_provider: LlmProvider,
+    ):
         self.engine = engine
         self.provider = provider
         self.embedding_provider = embedding_provider
+        self.llm_provider = llm_provider
 
     def _project(self, session, project_id):
         project = ProjectRepository(session).get(project_id, for_update=True)
@@ -107,6 +119,8 @@ class SearchService:
         ordered = [by_id[item.paper.id] for item in ranked]
         labels = await asyncio.to_thread(cluster_papers, ordered) if ordered else []
         clusters = {item.paper.id: label for item, label in zip(ranked, labels, strict=True)}
+        cluster_count = len({label for label in labels if label is not None})
+        subtopics, naming_error = await self._name_clusters(run, ranked, clusters, cluster_count)
         return CompletedSearch(
             ranked=ranked,
             total_found=result.totalFound,
@@ -115,8 +129,43 @@ class SearchService:
             fresh_vectors=fresh_vectors,
             model=model,
             clusters=clusters,
-            cluster_count=len({label for label in labels if label is not None}),
+            cluster_count=cluster_count,
+            subtopics=subtopics,
+            naming_error=naming_error,
         )
+
+    async def _name_clusters(self, run, ranked, clusters, cluster_count):
+        """Best-effort LLM naming: one bounded call per cluster, failures are non-fatal."""
+        if cluster_count < 2:
+            return {}, None
+        samples: dict[int, list[PaperBrief]] = {}
+        for item in ranked:
+            label = clusters.get(item.paper.id)
+            if label is None or len(samples.setdefault(label, [])) >= NAMING_SAMPLE:
+                continue
+            samples[label].append(PaperBrief(title=item.paper.title, abstract=item.paper.abstract))
+        cluster_ids = sorted(samples)
+
+        async def name(briefs):
+            return await asyncio.wait_for(
+                self.llm_provider.name_cluster(run.researchQuestion, briefs), NAMING_TIMEOUT_SECONDS
+            )
+
+        outcomes = await asyncio.gather(
+            *(name(samples[cluster_id]) for cluster_id in cluster_ids), return_exceptions=True
+        )
+        namings: dict[int, ClusterNaming] = {}
+        naming_error = None
+        for cluster_id, outcome in zip(cluster_ids, outcomes):
+            if isinstance(outcome, ClusterNaming):
+                namings[cluster_id] = outcome
+            else:
+                code = outcome.code if isinstance(outcome, ProviderError) else "LLM_UNAVAILABLE"
+                naming_error = naming_error or code
+                logger.warning(
+                    "Cluster naming failed run=%s cluster=%s code=%s", run.id, cluster_id, code
+                )
+        return namings, naming_error
 
     def finish(self, run, completed: CompletedSearch | None = None, error=None):
         with Session(self.engine) as session, session.begin():
@@ -138,10 +187,12 @@ class SearchService:
                     model=completed.model,
                     clusters=completed.clusters,
                 )
+                repository.replace_subtopics(project.id, run.id, completed.subtopics)
                 latest.totalFound = completed.total_found
                 latest.skippedCount = completed.skipped_count
                 latest.duplicateCount = completed.duplicate_count
                 latest.clusterCount = completed.cluster_count
+                latest.namingError = completed.naming_error
                 latest.status = "COMPLETED"
             latest.finishedAt = datetime.now(UTC)
             project.status = latest.status
@@ -193,3 +244,9 @@ class SearchService:
             if ProjectRepository(session).get(project_id) is None:
                 raise ProjectNotFound()
             return SearchRepository(session).papers(project_id)
+
+    def subtopics(self, project_id):
+        with Session(self.engine) as session:
+            if ProjectRepository(session).get(project_id) is None:
+                raise ProjectNotFound()
+            return SearchRepository(session).subtopics(project_id)

@@ -1,9 +1,10 @@
 # ResearchPilot
 
-Phases 1–4: manage research projects, retrieve real scholarly papers from OpenAlex,
-deduplicate and relevance-rank them with deterministic algorithms, then embed and
-cluster them into groups. Python 3.12+, FastAPI, SQLAlchemy, PostgreSQL, NumPy, an
-OpenAI embeddings call, and a same-origin vanilla JavaScript frontend.
+Phases 1–5: manage research projects, retrieve real scholarly papers from OpenAlex,
+deduplicate and relevance-rank them with deterministic algorithms, embed and cluster
+them into groups, then have an LLM name and describe each cluster. Python 3.12+,
+FastAPI, SQLAlchemy, PostgreSQL, NumPy, OpenAI (embeddings + a chat model), and a
+same-origin vanilla JavaScript frontend.
 
 ## Run locally
 
@@ -18,13 +19,14 @@ docker compose exec -T db psql -U researchpilot -d researchpilot -v ON_ERROR_STO
 docker compose exec -T db psql -U researchpilot -d researchpilot -v ON_ERROR_STOP=1 < migrations/002_scholarly_search.sql
 docker compose exec -T db psql -U researchpilot -d researchpilot -v ON_ERROR_STOP=1 < migrations/003_deduplication_relevance.sql
 docker compose exec -T db psql -U researchpilot -d researchpilot -v ON_ERROR_STOP=1 < migrations/004_embeddings_clusters.sql
+docker compose exec -T db psql -U researchpilot -d researchpilot -v ON_ERROR_STOP=1 < migrations/005_subtopics.sql
 uv run --env-file .env uvicorn researchpilot.api:app --host 127.0.0.1 --reload
 ```
 
 Open http://127.0.0.1:8000. API documentation is at `/docs`.
 Apply each numbered SQL migration once, in order; rerunning one fails without
 changing existing tables. When upgrading, apply only the migrations after your last
-applied number (for example, from Phase 3, apply only `004_embeddings_clusters.sql`).
+applied number (for example, from Phase 4, apply only `005_subtopics.sql`).
 Database startup never silently creates tables. Set `OPENAI_API_KEY` in `.env` before
 running a search — see [Phase 4](#phase-4-embed-and-cluster).
 Docker's named volume persists projects across restarts. The Compose password is
@@ -216,14 +218,40 @@ completed run reports `clusterCount`; `GET .../papers` carries each paper's
 `project_papers.clusterId`, and `search_runs.clusterCount` without rewriting rows;
 pre-Phase-4 papers re-embed on their next search.
 
-Deliberate omissions: no LLM cluster names or descriptions, no research map or
-paper-detail UI, no manual re-clustering or paper moves, no pgvector or
-nearest-neighbour search, no cross-project cluster reuse. Clustering is lexical
-input turned geometric so the grouping can be verified now, ahead of the Phase 5
-LLM naming.
+Deliberate omissions: no research map or paper-detail UI, no manual re-clustering or
+paper moves, no pgvector or nearest-neighbour search, no cross-project cluster reuse.
+Clustering is lexical input turned geometric so the grouping can be verified now.
 
 Provider tests use HTTPX mock transports; normal test runs make no external
 requests. Embedding reuse and cluster persistence are covered by the search suite,
 and `test_clustering.py` covers the algorithm directly.
 
 Implementation details: [Phase 4](docs/phase-4.md).
+
+## Phase 5: name the clusters
+
+After clustering, an LLM labels each cluster (when there are two or more). This is
+the project's first LLM call. It reuses `OPENAI_API_KEY`; no new configuration.
+
+Each cluster's top ~6 papers by relevance (title + abstract) are sent to OpenAI
+`gpt-4o-mini` behind an `LlmProvider` interface, one bounded request per cluster,
+run concurrently, `temperature 0`, strict JSON-schema output. The response is
+validated and trimmed into `{name, description, keywords}` (overlong fields are cut,
+not rejected). Prompts live in `prompts.py`, apart from the pipeline.
+
+Naming is best-effort: if any cluster's call fails, the search still `COMPLETED`,
+those clusters keep their `Cluster N` label, and `search_runs.namingError` records
+the first failure code. Unlike an embedding failure, naming never discards a result.
+
+`005_subtopics.sql` adds a `subtopics` table keyed by `(projectId, clusterId)` and
+`search_runs.namingError`. Subtopics are replaced atomically with the paper
+associations on each successful search. `GET /api/projects/{uuid}/subtopics` returns
+`[{clusterId, name, description, keywords}]`; the frontend shows the name on each
+cluster tab and the description and keywords above that cluster's papers.
+
+Deliberate omissions: no query expansion, no per-paper "why it belongs here"
+explanations (Phase 7), no research map (Phase 6), no manual rename (Phase 8), no
+name reuse across searches (cluster composition changes each run), no streaming, and
+a single vendor. The `LlmProvider` interface leaves room for the rest.
+
+Implementation details: [Phase 5](docs/phase-5.md).

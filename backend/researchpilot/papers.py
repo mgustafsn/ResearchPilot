@@ -40,6 +40,14 @@ class ProjectPaper(Paper):
     clusterId: int | None = None
 
 
+class Subtopic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    clusterId: int
+    name: str
+    description: str
+    keywords: list[str] = Field(default_factory=list)
+
+
 class SearchParameters(BaseModel):
     query: str
     yearFrom: int | None = None
@@ -69,6 +77,7 @@ class SearchRun(BaseModel):
     skippedCount: int = 0
     duplicateCount: int = 0
     clusterCount: int = 0
+    namingError: str | None = None
     errorCode: str | None = None
     errorMessage: str | None = None
 
@@ -96,6 +105,10 @@ class ProviderError(Exception):
         "EMBEDDING_RATE_LIMITED": "The embedding service is rate limited. Please try again later.",
         "EMBEDDING_UNAVAILABLE": "The embedding service is unavailable. Please try again later.",
         "EMBEDDING_INVALID_RESPONSE": "The embedding service returned an invalid response. Please try again.",
+        "LLM_UNAUTHORIZED": "The language model rejected authentication. Check the server API key.",
+        "LLM_RATE_LIMITED": "The language model is rate limited. Please try again later.",
+        "LLM_UNAVAILABLE": "The language model is unavailable. Please try again later.",
+        "LLM_INVALID_RESPONSE": "The language model returned an invalid response. Please try again.",
     }
 
     def __init__(self, code):

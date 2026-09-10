@@ -164,6 +164,8 @@ textarea { resize: vertical; min-height: 120px; }
 .cluster-tab:hover { border-color: var(--blue); color: #111936; }
 .cluster-tab.active { background: var(--blue); border-color: var(--blue); color: #fff; }
 .cluster-tab.active .count { background: rgba(255, 255, 255, .22); color: #fff; }
+.cluster-description { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
+.cluster-description + .keyword-list { margin-bottom: 18px; }
 .search-history { font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); padding-top: 12px; }
 .search-history summary { cursor: pointer; }
 .search-history-item { padding: 12px 0; border-bottom: 1px solid var(--border); }

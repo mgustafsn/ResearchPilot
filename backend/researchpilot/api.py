@@ -15,8 +15,8 @@ from .config import database_url, openai_headers, openalex_headers
 from .domain import Project, ProjectInput
 from .persistence import ProjectRepository
 from .service import ProjectNotFound, ProjectService
-from .papers import ProjectPaper, ProviderError, SearchRun
-from .providers.openai import OpenAIEmbeddingProvider
+from .papers import ProjectPaper, ProviderError, SearchRun, Subtopic
+from .providers.openai import OpenAIEmbeddingProvider, OpenAILlmProvider
 from .providers.openalex import OpenAlexProvider
 from .search import SearchService
 from .search_persistence import SearchConflict
@@ -24,7 +24,7 @@ from .search_persistence import SearchConflict
 FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
 
 
-def create_app(engine=None, provider=None, embedding_provider=None):
+def create_app(engine=None, provider=None, embedding_provider=None, llm_provider=None):
     @asynccontextmanager
     async def lifespan(app):
         app.state.engine = (
@@ -38,6 +38,7 @@ def create_app(engine=None, provider=None, embedding_provider=None):
                 app.state.engine,
                 provider or OpenAlexProvider(client),
                 embedding_provider or OpenAIEmbeddingProvider(openai_client),
+                llm_provider or OpenAILlmProvider(openai_client),
             )
             try:
                 yield
@@ -104,6 +105,9 @@ def create_app(engine=None, provider=None, embedding_provider=None):
                 "EMBEDDING_UNAUTHORIZED",
                 "EMBEDDING_RATE_LIMITED",
                 "EMBEDDING_UNAVAILABLE",
+                "LLM_UNAUTHORIZED",
+                "LLM_RATE_LIMITED",
+                "LLM_UNAVAILABLE",
             }
             else 502
         )
@@ -120,6 +124,10 @@ def create_app(engine=None, provider=None, embedding_provider=None):
     @app.get("/api/projects/{project_id}/papers", response_model=list[ProjectPaper])
     def project_papers(project_id: UUID):
         return app.state.search.papers(project_id)
+
+    @app.get("/api/projects/{project_id}/subtopics", response_model=list[Subtopic])
+    def project_subtopics(project_id: UUID):
+        return app.state.search.subtopics(project_id)
 
     app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
 

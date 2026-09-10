@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from researchpilot.api import create_app
+from researchpilot.llm import ClusterNaming
 from researchpilot.papers import ProviderError, SearchResult
 from researchpilot.providers.openalex import normalize_work
 from researchpilot.search_persistence import PaperRow, ProjectPaperRow, SearchRunRow
@@ -64,11 +65,30 @@ class RecordingEmbeddingProvider:
         return [1.0] * self.dimension
 
 
+class RecordingLlmProvider:
+    name = "Test LLM provider"
+    model = "test-llm"
+
+    def __init__(self):
+        self.calls = []
+        self.error = None
+
+    async def name_cluster(self, question, papers):
+        self.calls.append((question, list(papers)))
+        if self.error:
+            raise self.error
+        marker = (papers[0].title or "topic").split()[0]
+        return ClusterNaming(
+            name=f"Topic {marker}", description=f"Papers about {marker}.", keywords=[marker.lower()]
+        )
+
+
 @pytest.fixture
 def search_client(engine):
     provider = RecordingProvider()
-    embedder = RecordingEmbeddingProvider()
-    with TestClient(create_app(engine, provider, embedder)) as client:
+    with TestClient(
+        create_app(engine, provider, RecordingEmbeddingProvider(), RecordingLlmProvider())
+    ) as client:
         project = client.post("/api/projects", json=DATA).json()
         yield client, provider, f"/api/projects/{project['id']}"
 
@@ -77,9 +97,19 @@ def search_client(engine):
 def search_client_with_embedder(engine):
     provider = RecordingProvider()
     embedder = RecordingEmbeddingProvider()
-    with TestClient(create_app(engine, provider, embedder)) as client:
+    with TestClient(create_app(engine, provider, embedder, RecordingLlmProvider())) as client:
         project = client.post("/api/projects", json=DATA).json()
         yield client, provider, embedder, f"/api/projects/{project['id']}"
+
+
+@pytest.fixture
+def search_client_named(engine):
+    provider = RecordingProvider()
+    embedder = RecordingEmbeddingProvider()
+    llm = RecordingLlmProvider()
+    with TestClient(create_app(engine, provider, embedder, llm)) as client:
+        project = client.post("/api/projects", json=DATA).json()
+        yield client, provider, embedder, llm, f"/api/projects/{project['id']}"
 
 
 def test_search_persists_real_metadata_and_snapshot(search_client, engine):
@@ -211,6 +241,44 @@ def test_embedding_failure_preserves_previous_results(search_client_with_embedde
     history = client.get(url + "/searches").json()
     assert history[0]["status"] == "FAILED"
     assert history[0]["errorCode"] == "EMBEDDING_UNAVAILABLE"
+
+
+def test_search_names_each_cluster(search_client_named):
+    client, provider, embedder, llm, url = search_client_named
+    provider.papers = _grouped_papers()
+    run = client.post(url + "/search").json()
+    assert run["clusterCount"] == 3
+    assert run["namingError"] is None
+    assert len(llm.calls) == 3
+    subtopics = client.get(url + "/subtopics").json()
+    assert {s["clusterId"] for s in subtopics} == {0, 1, 2}
+    by_cluster = {s["clusterId"]: s for s in subtopics}
+    for topic in by_cluster.values():
+        assert topic["name"].startswith("Topic ")
+        assert topic["description"]
+        assert topic["keywords"]
+
+
+def test_naming_failure_completes_search_with_fallback(search_client_named):
+    client, provider, embedder, llm, url = search_client_named
+    provider.papers = _grouped_papers()
+    llm.error = ProviderError("LLM_RATE_LIMITED")
+    run = client.post(url + "/search").json()
+    assert run["status"] == "COMPLETED"
+    assert run["clusterCount"] == 3
+    assert run["namingError"] == "LLM_RATE_LIMITED"
+    assert client.get(url + "/subtopics").json() == []
+    assert {p["clusterId"] for p in client.get(url + "/papers").json()} == {0, 1, 2}
+
+
+def test_subtopics_are_replaced_on_a_new_search(search_client_named):
+    client, provider, embedder, llm, url = search_client_named
+    provider.papers = _grouped_papers()
+    client.post(url + "/search")
+    assert len(client.get(url + "/subtopics").json()) == 3
+    provider.papers = [normalize_work(WORK)]
+    client.post(url + "/search")
+    assert client.get(url + "/subtopics").json() == []  # single cluster, not named
 
 
 def test_failure_preserves_previous_results(search_client):

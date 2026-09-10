@@ -17,7 +17,8 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .analysis import RankedPaper
-from .papers import ProjectPaper, ProviderError, SearchRun
+from .llm import ClusterNaming
+from .papers import ProjectPaper, ProviderError, SearchRun, Subtopic
 from .persistence import Base
 
 
@@ -64,8 +65,21 @@ class SearchRunRow(Base):
     skippedCount: Mapped[int]
     duplicateCount: Mapped[int]
     clusterCount: Mapped[int]
+    namingError: Mapped[str | None] = mapped_column(String(32))
     errorCode: Mapped[str | None] = mapped_column(String(32))
     errorMessage: Mapped[str | None] = mapped_column(Text)
+
+
+class SubtopicRow(Base):
+    __tablename__ = "subtopics"
+    projectId: Mapped[UUID] = mapped_column(
+        ForeignKey("research_projects.id", ondelete="CASCADE"), primary_key=True
+    )
+    clusterId: Mapped[int] = mapped_column(primary_key=True)
+    searchRunId: Mapped[UUID] = mapped_column(ForeignKey("search_runs.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(Text)
+    description: Mapped[str] = mapped_column(Text)
+    keywords: Mapped[list] = mapped_column(JSON)
 
 
 class ProjectPaperRow(Base):
@@ -170,6 +184,30 @@ class SearchRepository:
             for position, item in enumerate(unique.values())
         )
         return len(unique)
+
+    def subtopics(self, project_id):
+        return [
+            Subtopic.model_validate(row)
+            for row in self.session.scalars(
+                select(SubtopicRow)
+                .where(SubtopicRow.projectId == project_id)
+                .order_by(SubtopicRow.clusterId)
+            )
+        ]
+
+    def replace_subtopics(self, project_id, run_id, namings: dict[int, ClusterNaming]):
+        self.session.execute(delete(SubtopicRow).where(SubtopicRow.projectId == project_id))
+        self.session.add_all(
+            SubtopicRow(
+                projectId=project_id,
+                clusterId=cluster_id,
+                searchRunId=run_id,
+                name=naming.name,
+                description=naming.description,
+                keywords=naming.keywords,
+            )
+            for cluster_id, naming in sorted(namings.items())
+        )
 
 
 SEARCH_LEASE_SECONDS = 240

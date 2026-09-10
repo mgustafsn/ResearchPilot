@@ -1,9 +1,13 @@
+import json
 import logging
 
 import httpx
+from pydantic import ValidationError
 
 from ..config import openai_base_url
+from ..llm import ClusterNaming, PaperBrief
 from ..papers import ProviderError
+from ..prompts import cluster_naming_messages
 
 logger = logging.getLogger(__name__)
 
@@ -11,6 +15,18 @@ MODEL = "text-embedding-3-small"
 DIMENSION = 512
 BATCH_SIZE = 256
 MAX_CHARS = 30_000
+
+LLM_MODEL = "gpt-4o-mini"
+_NAMING_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string"},
+        "description": {"type": "string"},
+        "keywords": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["name", "description", "keywords"],
+    "additionalProperties": False,
+}
 
 
 class OpenAIEmbeddingProvider:
@@ -45,6 +61,53 @@ class OpenAIEmbeddingProvider:
                 raise ProviderError("EMBEDDING_INVALID_RESPONSE") from None
             vectors.extend(_vectors(payload, len(batch)))
         return vectors
+
+
+class OpenAILlmProvider:
+    name = "OpenAI"
+    model = LLM_MODEL
+
+    def __init__(self, client: httpx.AsyncClient, base_url: str | None = None):
+        self.client = client
+        self.base_url = (base_url or openai_base_url()).rstrip("/")
+
+    async def name_cluster(self, question: str, papers: list[PaperBrief]) -> ClusterNaming:
+        body = {
+            "model": LLM_MODEL,
+            "temperature": 0,
+            "messages": cluster_naming_messages(question, papers),
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {"name": "subtopic", "strict": True, "schema": _NAMING_SCHEMA},
+            },
+        }
+        logger.info("OpenAI cluster naming papers=%s", len(papers))
+        try:
+            response = await self.client.post(f"{self.base_url}/chat/completions", json=body)
+            if response.status_code in {401, 403}:
+                raise ProviderError("LLM_UNAUTHORIZED")
+            if response.status_code == 429:
+                raise ProviderError("LLM_RATE_LIMITED")
+            if response.status_code != 200:
+                raise ProviderError("LLM_UNAVAILABLE")
+            payload = response.json()
+        except httpx.HTTPError:
+            raise ProviderError("LLM_UNAVAILABLE") from None
+        except ValueError:
+            raise ProviderError("LLM_INVALID_RESPONSE") from None
+        return _naming(payload)
+
+
+def _naming(payload) -> ClusterNaming:
+    try:
+        content = payload["choices"][0]["message"]["content"]
+        parsed = json.loads(content)
+    except (KeyError, IndexError, TypeError, ValueError):
+        raise ProviderError("LLM_INVALID_RESPONSE") from None
+    try:
+        return ClusterNaming.model_validate(parsed)
+    except ValidationError:
+        raise ProviderError("LLM_INVALID_RESPONSE") from None
 
 
 def _vectors(payload, expected: int) -> list[list[float]]:

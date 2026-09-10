@@ -263,7 +263,7 @@ function literature(project, left, aside, actions, remove) {
     editLink.setAttribute('aria-disabled', String(value));
   }
   editLink.addEventListener('click', event => { if (busy) event.preventDefault(); });
-  function showPapers(papers, history) {
+  function showPapers(papers, history, subtopics) {
     papersBody.replaceChildren();
     papersPanel.querySelector('h2').textContent = `Papers (${papers.length})`;
     const completed = history.find(run => run.status === 'COMPLETED');
@@ -285,23 +285,32 @@ function literature(project, left, aside, actions, remove) {
         : 'Find real scholarly papers from OpenAlex using your research question.', empty, 'muted');
       return;
     }
+    const named = new Map((subtopics || []).map(topic => [topic.clusterId, topic]));
     const clusterIds = [...new Set(papers.map(paper => paper.clusterId))]
       .filter(id => id !== null && id !== undefined)
       .sort((a, b) => a - b);
-    const groups = clusterIds.map(id => [`Cluster ${id + 1}`, papers.filter(p => p.clusterId === id)]);
+    const groups = clusterIds.map(id => ({
+      name: named.get(id)?.name || `Cluster ${id + 1}`,
+      topic: named.get(id) || null,
+      members: papers.filter(p => p.clusterId === id),
+    }));
     const uncategorized = papers.filter(p => p.clusterId === null || p.clusterId === undefined);
-    if (uncategorized.length) groups.push(['Uncategorized', uncategorized]);
+    if (uncategorized.length) groups.push({name: 'Uncategorized', topic: null, members: uncategorized});
     if (groups.length < 2) {
       for (const paper of papers) paperRow(paper, papersBody);
       return;
     }
+    if (completed && completed.namingError) {
+      element('p', 'Automatic cluster names were unavailable for this search.', papersBody, 'field-help');
+    }
     const tabRow = element('div', '', papersBody, 'cluster-tabs');
+    const detail = element('div', '', papersBody);
     const list = element('div', '', papersBody);
     let active = null;
-    const buttons = groups.map(([name, members], index) => {
+    const buttons = groups.map((group, index) => {
       const button = element('button', '', tabRow, 'cluster-tab');
-      element('span', name, button);
-      element('span', String(members.length), button, 'count');
+      element('span', group.name, button);
+      element('span', String(group.members.length), button, 'count');
       button.addEventListener('click', () => {
         active = active === index ? null : index;
         buttons.forEach((other, i) => other.classList.toggle('active', i === active));
@@ -310,8 +319,17 @@ function literature(project, left, aside, actions, remove) {
       return button;
     });
     function render() {
+      detail.replaceChildren();
       list.replaceChildren();
-      for (const paper of active === null ? papers : groups[active][1]) paperRow(paper, list);
+      const group = active === null ? null : groups[active];
+      if (group && group.topic) {
+        element('p', group.topic.description, detail, 'cluster-description');
+        if (group.topic.keywords.length) {
+          const keywords = element('div', '', detail, 'keyword-list');
+          for (const keyword of group.topic.keywords) element('span', keyword, keywords, 'keyword');
+        }
+      }
+      for (const paper of group ? group.members : papers) paperRow(paper, list);
     }
     render();
   }
@@ -363,8 +381,11 @@ function literature(project, left, aside, actions, remove) {
     showSearch(history);
     const latestId = history[0]?.id ?? null;
     if (!busy || displayedRunId === undefined) {
-      const papers = await api(`${projectPath}/papers`);
-      showPapers(papers, history);
+      const [papers, subtopics] = await Promise.all([
+        api(`${projectPath}/papers`),
+        api(`${projectPath}/subtopics`),
+      ]);
+      showPapers(papers, history, subtopics);
       displayedRunId = latestId;
     }
     if (busy) timer = setTimeout(() => refresh().catch(showError), 2000);
