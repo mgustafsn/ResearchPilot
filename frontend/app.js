@@ -291,13 +291,16 @@ function literature(project, left, aside, actions, remove) {
     const groups = clusterIds.map(id => [`Cluster ${id + 1}`, papers.filter(p => p.clusterId === id)]);
     const uncategorized = papers.filter(p => p.clusterId === null || p.clusterId === undefined);
     if (uncategorized.length) groups.push(['Uncategorized', uncategorized]);
+    if (groups.length < 2) {
+      for (const paper of papers) paperRow(paper, papersBody);
+      return;
+    }
     for (const [name, members] of groups) {
-      if (groups.length > 1) {
-        const header = element('div', '', papersBody, 'section-tabs');
-        const label = element('span', name, header, 'selected-tab');
-        element('span', String(members.length), label, 'count');
-      }
-      for (const paper of members) paperRow(paper, papersBody);
+      const section = element('details', '', papersBody, 'cluster-group');
+      const summary = element('summary', '', section);
+      element('span', name, summary);
+      element('span', String(members.length), summary, 'count');
+      for (const paper of members) paperRow(paper, section);
     }
   }
   function paperRow(paper, parent) {

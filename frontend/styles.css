@@ -159,6 +159,10 @@ textarea { resize: vertical; min-height: 120px; }
 .search-query { overflow-wrap: anywhere; white-space: pre-wrap; font-size: 12px; padding: 10px; background: #f5f8fc; border-radius: 6px; margin: 5px 0 14px; }
 .search-status { color: #4265c3; font-size: 12px; }
 .search-failure { color: #a34f59; font-size: 12px; }
+.cluster-group { border-top: 1px solid var(--border); }
+.cluster-group summary { cursor: pointer; display: flex; align-items: center; gap: 9px; padding: 14px 2px; font-weight: 500; list-style-position: inside; }
+.cluster-group[open] summary { border-bottom: 1px solid var(--border); }
+.cluster-group .paper-row:last-child { border-bottom: none; }
 .search-history { font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); padding-top: 12px; }
 .search-history summary { cursor: pointer; }
 .search-history-item { padding: 12px 0; border-bottom: 1px solid var(--border); }
