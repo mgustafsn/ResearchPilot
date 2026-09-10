@@ -234,3 +234,60 @@ def test_llm_timeout_maps_to_unavailable():
     with pytest.raises(ProviderError) as error:
         name_cluster(handler)
     assert error.value.code == "LLM_UNAVAILABLE"
+
+
+def explain_paper(handler, question="How are LLMs used in software engineering?"):
+    paper = PaperBrief(
+        title="GPT-based unit test generation for Java", abstract="We generate JUnit tests."
+    )
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await OpenAILlmProvider(client).explain_paper(
+                question, "LLMs for Software Testing", paper
+            )
+
+    return asyncio.run(run())
+
+
+def test_explain_paper_returns_a_grounded_sentence():
+    def handler(request):
+        body = json.loads(request.content)
+        assert body["model"] == LLM_MODEL
+        assert body["temperature"] == 0
+        assert body["response_format"]["type"] == "json_schema"
+        content = body["messages"][-1]["content"]
+        assert "GPT-based unit test generation" in content
+        assert "LLMs for Software Testing" in content
+        return _completion(
+            {"explanation": "  It evaluates GPT-generated JUnit tests, squarely test generation.  "}
+        )
+
+    assert (
+        explain_paper(handler)
+        == "It evaluates GPT-generated JUnit tests, squarely test generation."
+    )
+
+
+def test_explain_paper_truncates_and_rejects_blank():
+    assert len(explain_paper(lambda r: _completion({"explanation": "word " * 200}))) <= 400
+    with pytest.raises(ProviderError) as error:
+        explain_paper(lambda r: _completion({"explanation": "   "}))
+    assert error.value.code == "LLM_INVALID_RESPONSE"
+
+
+@pytest.mark.parametrize(
+    ("status", "code"),
+    [(401, "LLM_UNAUTHORIZED"), (429, "LLM_RATE_LIMITED"), (500, "LLM_UNAVAILABLE")],
+)
+def test_explain_paper_http_failures_map_to_safe_codes(status, code):
+    with pytest.raises(ProviderError) as error:
+        explain_paper(lambda r: httpx.Response(status, text="secret upstream body"))
+    assert error.value.code == code
+    assert "secret" not in str(error.value)
+
+
+def test_explain_paper_rejects_malformed_response():
+    with pytest.raises(ProviderError) as error:
+        explain_paper(lambda r: _completion({"wrong": "key"}))
+    assert error.value.code == "LLM_INVALID_RESPONSE"

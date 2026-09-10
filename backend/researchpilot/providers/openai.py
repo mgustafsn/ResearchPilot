@@ -5,9 +5,9 @@ import httpx
 from pydantic import ValidationError
 
 from ..config import openai_base_url
-from ..llm import ClusterNaming, PaperBrief
+from ..llm import ClusterNaming, PaperBrief, PaperExplanation
 from ..papers import ProviderError
-from ..prompts import cluster_naming_messages
+from ..prompts import cluster_naming_messages, paper_explanation_messages
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +25,12 @@ _NAMING_SCHEMA = {
         "keywords": {"type": "array", "items": {"type": "string"}},
     },
     "required": ["name", "description", "keywords"],
+    "additionalProperties": False,
+}
+_EXPLANATION_SCHEMA = {
+    "type": "object",
+    "properties": {"explanation": {"type": "string"}},
+    "required": ["explanation"],
     "additionalProperties": False,
 }
 
@@ -71,17 +77,16 @@ class OpenAILlmProvider:
         self.client = client
         self.base_url = (base_url or openai_base_url()).rstrip("/")
 
-    async def name_cluster(self, question: str, papers: list[PaperBrief]) -> ClusterNaming:
+    async def _completion(self, schema_name: str, schema: dict, messages: list[dict]) -> dict:
         body = {
             "model": LLM_MODEL,
             "temperature": 0,
-            "messages": cluster_naming_messages(question, papers),
+            "messages": messages,
             "response_format": {
                 "type": "json_schema",
-                "json_schema": {"name": "subtopic", "strict": True, "schema": _NAMING_SCHEMA},
+                "json_schema": {"name": schema_name, "strict": True, "schema": schema},
             },
         }
-        logger.info("OpenAI cluster naming papers=%s", len(papers))
         try:
             response = await self.client.post(f"{self.base_url}/chat/completions", json=body)
             if response.status_code in {401, 403}:
@@ -95,19 +100,32 @@ class OpenAILlmProvider:
             raise ProviderError("LLM_UNAVAILABLE") from None
         except ValueError:
             raise ProviderError("LLM_INVALID_RESPONSE") from None
-        return _naming(payload)
+        try:
+            return json.loads(payload["choices"][0]["message"]["content"])
+        except (KeyError, IndexError, TypeError, ValueError):
+            raise ProviderError("LLM_INVALID_RESPONSE") from None
 
+    async def name_cluster(self, question: str, papers: list[PaperBrief]) -> ClusterNaming:
+        logger.info("OpenAI cluster naming papers=%s", len(papers))
+        parsed = await self._completion(
+            "subtopic", _NAMING_SCHEMA, cluster_naming_messages(question, papers)
+        )
+        try:
+            return ClusterNaming.model_validate(parsed)
+        except ValidationError:
+            raise ProviderError("LLM_INVALID_RESPONSE") from None
 
-def _naming(payload) -> ClusterNaming:
-    try:
-        content = payload["choices"][0]["message"]["content"]
-        parsed = json.loads(content)
-    except (KeyError, IndexError, TypeError, ValueError):
-        raise ProviderError("LLM_INVALID_RESPONSE") from None
-    try:
-        return ClusterNaming.model_validate(parsed)
-    except ValidationError:
-        raise ProviderError("LLM_INVALID_RESPONSE") from None
+    async def explain_paper(self, question: str, subtopic: str, paper: PaperBrief) -> str:
+        logger.info("OpenAI paper explanation")
+        parsed = await self._completion(
+            "explanation",
+            _EXPLANATION_SCHEMA,
+            paper_explanation_messages(question, subtopic, paper),
+        )
+        try:
+            return PaperExplanation.model_validate(parsed).explanation
+        except ValidationError:
+            raise ProviderError("LLM_INVALID_RESPONSE") from None
 
 
 def _vectors(payload, expected: int) -> list[list[float]]:

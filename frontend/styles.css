@@ -185,3 +185,4 @@ textarea { resize: vertical; min-height: 120px; }
 .drawer-field dd { margin: 0; overflow-wrap: anywhere; }
 .drawer-panel h3 { margin: 22px 0 8px; }
 .drawer-abstract { font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; white-space: pre-wrap; }
+.drawer-retry { padding: 4px 12px; margin-top: 8px; display: inline-flex; }

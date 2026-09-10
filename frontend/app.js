@@ -319,12 +319,37 @@ function literature(project, left, aside, actions, remove) {
     drawerField('Source', `View on ${paper.source}`, {href: paper.sourceUrl});
     drawerField('Publication', 'Open publication page', {href: paper.publicationUrl});
     if (paper.openAccessUrl) drawerField('Open access', 'Open full text', {href: paper.openAccessUrl});
+    if (topic) explanationSection(paper, topic.name);
     element('h3', 'Abstract', drawerPanel);
     element('p', paper.abstract || 'No abstract is available for this paper.', drawerPanel,
       paper.abstract ? 'drawer-abstract' : 'muted');
     drawer.hidden = false;
     document.addEventListener('keydown', drawerKey);
     drawerPanel.focus();
+  }
+  function explanationSection(paper, subtopicName) {
+    element('h3', `Why it's in ${subtopicName}`, drawerPanel);
+    const body = element('p', '', drawerPanel, 'drawer-abstract');
+    if (paper.classificationExplanation) {
+      body.textContent = paper.classificationExplanation;
+      return;
+    }
+    const load = () => {
+      body.replaceChildren();
+      body.className = 'drawer-abstract muted';
+      body.textContent = 'Generating an explanation…';
+      api(`${projectPath}/papers/${paper.id}/explanation`, {method: 'POST'}).then(result => {
+        paper.classificationExplanation = result.explanation;
+        body.className = 'drawer-abstract';
+        body.textContent = result.explanation;
+      }).catch(error => {
+        body.className = 'drawer-abstract';
+        body.replaceChildren();
+        element('span', `Could not generate an explanation. ${error.message} `, body, 'search-failure');
+        element('button', 'Retry', body, 'secondary drawer-retry').addEventListener('click', load);
+      });
+    };
+    load();
   }
   function showPapers(papers, history, subtopics) {
     papersBody.replaceChildren();

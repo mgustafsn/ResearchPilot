@@ -1,11 +1,11 @@
 # ResearchPilot
 
-Phases 1–6: manage research projects, retrieve real scholarly papers from OpenAlex,
+Phases 1–7: manage research projects, retrieve real scholarly papers from OpenAlex,
 deduplicate and relevance-rank them with deterministic algorithms, embed and cluster
-them into groups, have an LLM name and describe each cluster, and browse the result
-as a research map with staged search progress and a paper-detail drawer. Python
-3.12+, FastAPI, SQLAlchemy, PostgreSQL, NumPy, OpenAI (embeddings + a chat model),
-and a same-origin vanilla JavaScript frontend.
+them into groups, have an LLM name each cluster and explain why a paper belongs in
+it, and browse the result as a research map with staged search progress and a
+paper-detail drawer. Python 3.12+, FastAPI, SQLAlchemy, PostgreSQL, NumPy, OpenAI
+(embeddings + a chat model), and a same-origin vanilla JavaScript frontend.
 
 ## Run locally
 
@@ -22,13 +22,14 @@ docker compose exec -T db psql -U researchpilot -d researchpilot -v ON_ERROR_STO
 docker compose exec -T db psql -U researchpilot -d researchpilot -v ON_ERROR_STOP=1 < migrations/004_embeddings_clusters.sql
 docker compose exec -T db psql -U researchpilot -d researchpilot -v ON_ERROR_STOP=1 < migrations/005_subtopics.sql
 docker compose exec -T db psql -U researchpilot -d researchpilot -v ON_ERROR_STOP=1 < migrations/006_search_stage.sql
+docker compose exec -T db psql -U researchpilot -d researchpilot -v ON_ERROR_STOP=1 < migrations/007_classification_explanations.sql
 uv run --env-file .env uvicorn researchpilot.api:app --host 127.0.0.1 --reload
 ```
 
 Open http://127.0.0.1:8000. API documentation is at `/docs`.
 Apply each numbered SQL migration once, in order; rerunning one fails without
 changing existing tables. When upgrading, apply only the migrations after your last
-applied number (for example, from Phase 5, apply only `006_search_stage.sql`).
+applied number (for example, from Phase 6, apply only `007_classification_explanations.sql`).
 Database startup never silently creates tables. Set `OPENAI_API_KEY` in `.env` before
 running a search — see [Phase 4](#phase-4-embed-and-cluster).
 Docker's named volume persists projects across restarts. The Compose password is
@@ -279,8 +280,36 @@ DOI, source, publication, and open-access links, and the complete abstract. It
 reads only fields already on `GET .../papers`; there is no new endpoint.
 
 Deliberate omissions: no left-rail redesign, no access-status labels (Phase 9), no
-per-paper classification explanations (Phase 7), no manual editing (Phase 8), no
-settings page, no research-coverage analysis. Progress is real but coarse: one
-stage at a time, no per-item counts.
+manual editing (Phase 8), no settings page, no research-coverage analysis. Progress
+is real but coarse: one stage at a time, no per-item counts.
 
 Implementation details: [Phase 6](docs/phase-6.md).
+
+## Phase 7: explain the classification
+
+The paper drawer's "Why it's in *{subtopic}*" section is filled by an LLM, on
+demand. Nothing is generated at search time.
+
+`POST /api/projects/{uuid}/papers/{paperId}/explanation` reads the paper, its
+subtopic, and the research question in one session; if the row already has an
+explanation it is returned unchanged, otherwise `gpt-4o-mini` is asked (outside any
+transaction, `temperature 0`, strict `{explanation}` schema) for one or two
+sentences grounded only in the title and abstract, which is trimmed to 400
+characters, stored on `project_papers.classificationExplanation`
+(`007_classification_explanations.sql`), and returned. The endpoint is idempotent —
+repeat calls cost nothing.
+
+`404` if the paper is not in the project, `422` if it is Uncategorized or its
+cluster was never named, and `502`/`503` on an LLM failure (this call is a direct
+request, so unlike cluster naming the error does surface). A new search recreates
+the paper associations, so stored explanations clear automatically.
+
+The drawer requests the explanation when it opens for an eligible paper, showing a
+placeholder then the text, or an error with a Retry button, and caches the result on
+the in-memory paper for the session.
+
+Deliberate omissions: no card-level explanation line (drawer only), no batch
+precompute, nothing for Uncategorized papers, no regenerate beyond retry-on-error,
+and the prompt gets the subtopic name but not its description.
+
+Implementation details: [Phase 7](docs/phase-7.md).

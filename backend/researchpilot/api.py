@@ -19,7 +19,7 @@ from .papers import ProjectPaper, ProviderError, SearchRun, Subtopic
 from .providers.openai import OpenAIEmbeddingProvider, OpenAILlmProvider
 from .providers.openalex import OpenAlexProvider
 from .search import SearchService
-from .search_persistence import SearchConflict
+from .search_persistence import ExplanationUnavailable, SearchConflict
 
 FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
 
@@ -91,6 +91,10 @@ def create_app(engine=None, provider=None, embedding_provider=None, llm_provider
     async def search_conflict(request, exc):
         return JSONResponse(status_code=409, content={"detail": str(exc)})
 
+    @app.exception_handler(ExplanationUnavailable)
+    async def explanation_unavailable(request, exc):
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
+
     @app.exception_handler(ProviderError)
     async def provider_error(request, exc):
         status = (
@@ -128,6 +132,10 @@ def create_app(engine=None, provider=None, embedding_provider=None, llm_provider
     @app.get("/api/projects/{project_id}/subtopics", response_model=list[Subtopic])
     def project_subtopics(project_id: UUID):
         return app.state.search.subtopics(project_id)
+
+    @app.post("/api/projects/{project_id}/papers/{paper_id}/explanation")
+    async def paper_explanation(project_id: UUID, paper_id: UUID):
+        return {"explanation": await app.state.search.explain(project_id, paper_id)}
 
     app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
 

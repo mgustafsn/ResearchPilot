@@ -11,6 +11,7 @@ from sqlalchemy import (
     UniqueConstraint,
     delete,
     select,
+    update,
 )
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -93,6 +94,7 @@ class ProjectPaperRow(Base):
     position: Mapped[int]
     relevanceScore: Mapped[float]
     clusterId: Mapped[int | None]
+    classificationExplanation: Mapped[str | None] = mapped_column(Text)
 
 
 class SearchRepository:
@@ -121,10 +123,20 @@ class SearchRepository:
     def papers(self, project_id):
         return [
             ProjectPaper.model_validate(
-                {**paper.__dict__, "relevanceScore": relevance_score, "clusterId": cluster_id}
+                {
+                    **paper.__dict__,
+                    "relevanceScore": relevance_score,
+                    "clusterId": cluster_id,
+                    "classificationExplanation": explanation,
+                }
             )
-            for paper, relevance_score, cluster_id in self.session.execute(
-                select(PaperRow, ProjectPaperRow.relevanceScore, ProjectPaperRow.clusterId)
+            for paper, relevance_score, cluster_id, explanation in self.session.execute(
+                select(
+                    PaperRow,
+                    ProjectPaperRow.relevanceScore,
+                    ProjectPaperRow.clusterId,
+                    ProjectPaperRow.classificationExplanation,
+                )
                 .join(ProjectPaperRow, ProjectPaperRow.paperId == PaperRow.id)
                 .where(ProjectPaperRow.projectId == project_id)
                 .order_by(ProjectPaperRow.position)
@@ -196,6 +208,38 @@ class SearchRepository:
             )
         ]
 
+    def explanation_target(self, project_id, paper_id):
+        row = self.session.execute(
+            select(ProjectPaperRow, PaperRow)
+            .join(PaperRow, PaperRow.id == ProjectPaperRow.paperId)
+            .where(
+                ProjectPaperRow.projectId == project_id,
+                ProjectPaperRow.paperId == paper_id,
+            )
+        ).first()
+        if row is None:
+            return None
+        project_paper, paper = row
+        subtopic = None
+        if project_paper.clusterId is not None:
+            subtopic = self.session.scalar(
+                select(SubtopicRow).where(
+                    SubtopicRow.projectId == project_id,
+                    SubtopicRow.clusterId == project_paper.clusterId,
+                )
+            )
+        return project_paper, paper, subtopic
+
+    def store_explanation(self, project_id, paper_id, text):
+        self.session.execute(
+            update(ProjectPaperRow)
+            .where(
+                ProjectPaperRow.projectId == project_id,
+                ProjectPaperRow.paperId == paper_id,
+            )
+            .values(classificationExplanation=text)
+        )
+
     def replace_subtopics(self, project_id, run_id, namings: dict[int, ClusterNaming]):
         self.session.execute(delete(SubtopicRow).where(SubtopicRow.projectId == project_id))
         self.session.add_all(
@@ -216,6 +260,10 @@ SEARCH_LEASE_SECONDS = 240
 
 class SearchConflict(Exception):
     pass
+
+
+class ExplanationUnavailable(Exception):
+    """The requested paper has no named subtopic to explain membership in."""
 
 
 def expire_search(project, repository):

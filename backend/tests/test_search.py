@@ -72,6 +72,8 @@ class RecordingLlmProvider:
     def __init__(self):
         self.calls = []
         self.error = None
+        self.explain_calls = []
+        self.explain_error = None
 
     async def name_cluster(self, question, papers):
         self.calls.append((question, list(papers)))
@@ -81,6 +83,12 @@ class RecordingLlmProvider:
         return ClusterNaming(
             name=f"Topic {marker}", description=f"Papers about {marker}.", keywords=[marker.lower()]
         )
+
+    async def explain_paper(self, question, subtopic, paper):
+        self.explain_calls.append((question, subtopic, paper))
+        if self.explain_error:
+            raise self.explain_error
+        return f"{paper.title} fits {subtopic}."
 
 
 @pytest.fixture
@@ -279,6 +287,64 @@ def test_subtopics_are_replaced_on_a_new_search(search_client_named):
     provider.papers = [normalize_work(WORK)]
     client.post(url + "/search")
     assert client.get(url + "/subtopics").json() == []  # single cluster, not named
+
+
+def test_explanation_is_generated_then_cached(search_client_named):
+    client, provider, embedder, llm, url = search_client_named
+    provider.papers = _grouped_papers()
+    client.post(url + "/search")
+    paper = client.get(url + "/papers").json()[0]
+    assert paper["classificationExplanation"] is None
+
+    first = client.post(f"{url}/papers/{paper['id']}/explanation")
+    assert first.status_code == 200
+    assert (
+        first.json()["explanation"] == f"{paper['title']} fits Topic {paper['title'].split()[0]}."
+    )
+    assert len(llm.explain_calls) == 1
+    assert (
+        client.get(url + "/papers").json()[0]["classificationExplanation"]
+        == first.json()["explanation"]
+    )
+
+    second = client.post(f"{url}/papers/{paper['id']}/explanation")
+    assert second.json() == first.json()
+    assert len(llm.explain_calls) == 1  # served from cache, no second LLM call
+
+
+def test_explanation_requires_a_named_subtopic(search_client_named):
+    client, provider, embedder, llm, url = search_client_named
+    provider.papers = [normalize_work(WORK)]  # single cluster, no subtopic
+    client.post(url + "/search")
+    paper_id = client.get(url + "/papers").json()[0]["id"]
+    assert client.post(f"{url}/papers/{paper_id}/explanation").status_code == 422
+    assert llm.explain_calls == []
+
+
+def test_explanation_unknown_paper_is_404(search_client_named):
+    client, provider, embedder, llm, url = search_client_named
+    provider.papers = _grouped_papers()
+    client.post(url + "/search")
+    assert client.post(f"{url}/papers/{uuid4()}/explanation").status_code == 404
+
+
+def test_explanation_llm_failure_propagates(search_client_named):
+    client, provider, embedder, llm, url = search_client_named
+    provider.papers = _grouped_papers()
+    client.post(url + "/search")
+    paper_id = client.get(url + "/papers").json()[0]["id"]
+    llm.explain_error = ProviderError("LLM_RATE_LIMITED")
+    assert client.post(f"{url}/papers/{paper_id}/explanation").status_code == 503
+
+
+def test_new_search_clears_stored_explanations(search_client_named):
+    client, provider, embedder, llm, url = search_client_named
+    provider.papers = _grouped_papers()
+    client.post(url + "/search")
+    paper_id = client.get(url + "/papers").json()[0]["id"]
+    client.post(f"{url}/papers/{paper_id}/explanation")
+    client.post(url + "/search")
+    assert all(p["classificationExplanation"] is None for p in client.get(url + "/papers").json())
 
 
 def test_search_reports_pipeline_stages(search_client_named, monkeypatch):

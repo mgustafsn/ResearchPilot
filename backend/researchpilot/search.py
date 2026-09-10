@@ -15,7 +15,13 @@ from .embeddings import EmbeddingProvider
 from .llm import ClusterNaming, LlmProvider, PaperBrief
 from .papers import Paper, PaperProvider, ProviderError, SearchParameters, SearchRun
 from .persistence import ProjectRepository
-from .search_persistence import SearchConflict, SearchRepository, SearchRunRow, expire_search
+from .search_persistence import (
+    ExplanationUnavailable,
+    SearchConflict,
+    SearchRepository,
+    SearchRunRow,
+    expire_search,
+)
 from .service import ProjectNotFound
 
 logger = logging.getLogger(__name__)
@@ -267,3 +273,40 @@ class SearchService:
             if ProjectRepository(session).get(project_id) is None:
                 raise ProjectNotFound()
             return SearchRepository(session).subtopics(project_id)
+
+    def _explanation_input(self, project_id, paper_id):
+        with Session(self.engine) as session:
+            project = ProjectRepository(session).get(project_id)
+            if project is None:
+                raise ProjectNotFound()
+            target = SearchRepository(session).explanation_target(project_id, paper_id)
+            if target is None:
+                raise ProjectNotFound()
+            project_paper, paper, subtopic = target
+            if project_paper.classificationExplanation:
+                return {"cached": project_paper.classificationExplanation}
+            if subtopic is None:
+                raise ExplanationUnavailable("This paper has no named subtopic to explain.")
+            return {
+                "cached": None,
+                "question": project.researchQuestion,
+                "subtopic": subtopic.name,
+                "paper": PaperBrief(title=paper.title, abstract=paper.abstract),
+            }
+
+    def _store_explanation(self, project_id, paper_id, text):
+        with Session(self.engine) as session, session.begin():
+            SearchRepository(session).store_explanation(project_id, paper_id, text)
+
+    async def explain(self, project_id, paper_id):
+        prepared = await asyncio.to_thread(self._explanation_input, project_id, paper_id)
+        if prepared["cached"] is not None:
+            return prepared["cached"]
+        text = await asyncio.wait_for(
+            self.llm_provider.explain_paper(
+                prepared["question"], prepared["subtopic"], prepared["paper"]
+            ),
+            NAMING_TIMEOUT_SECONDS,
+        )
+        await asyncio.to_thread(self._store_explanation, project_id, paper_id, text)
+        return text

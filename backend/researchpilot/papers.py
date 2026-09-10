@@ -38,6 +38,7 @@ class Paper(BaseModel):
 class ProjectPaper(Paper):
     relevanceScore: float = Field(ge=0, le=1)
     clusterId: int | None = None
+    classificationExplanation: str | None = None
 
 
 class Subtopic(BaseModel):

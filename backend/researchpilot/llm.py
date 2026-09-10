@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 NAME_MAX = 80
 DESCRIPTION_MAX = 500
 KEYWORDS_MAX = 8
+EXPLANATION_MAX = 400
 
 
 class PaperBrief(BaseModel):
@@ -51,8 +52,28 @@ class ClusterNaming(BaseModel):
         return cleaned[:KEYWORDS_MAX]
 
 
+class PaperExplanation(BaseModel):
+    """Validated LLM output for one paper's subtopic membership. Trims, never rejects for length."""
+
+    explanation: str
+
+    @field_validator("explanation", mode="before")
+    @classmethod
+    def _collapse(cls, value):
+        return " ".join(str(value).split()) if value is not None else ""
+
+    @field_validator("explanation")
+    @classmethod
+    def _require(cls, value):
+        if not value:
+            raise ValueError("empty explanation")
+        return value[:EXPLANATION_MAX]
+
+
 class LlmProvider(Protocol):
     name: str
     model: str
 
     async def name_cluster(self, question: str, papers: list[PaperBrief]) -> ClusterNaming: ...
+
+    async def explain_paper(self, question: str, subtopic: str, paper: PaperBrief) -> str: ...

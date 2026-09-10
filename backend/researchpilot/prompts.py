@@ -25,3 +25,27 @@ def cluster_naming_messages(question: str, papers: list[PaperBrief]) -> list[dic
         {"role": "system", "content": CLUSTER_NAMING_SYSTEM},
         {"role": "user", "content": "\n".join(lines)},
     ]
+
+
+PAPER_EXPLANATION_SYSTEM = (
+    "You explain why a single paper belongs in a research subtopic. You are given the "
+    "research question, the subtopic, and one paper's title and abstract. Respond with a "
+    "JSON object containing `explanation`: one or two sentences, grounded only in the "
+    "paper's title and abstract, on why it fits the subtopic. Do not invent findings and "
+    "do not simply restate the abstract."
+)
+
+
+def paper_explanation_messages(question: str, subtopic: str, paper: PaperBrief) -> list[dict]:
+    abstract = (paper.abstract or "").strip()
+    lines = [
+        f"Research question: {question}",
+        f"Subtopic: {subtopic}",
+        "",
+        f"Paper title: {paper.title or 'Untitled'}",
+        f"Abstract: {abstract[:ABSTRACT_CHARS]}" if abstract else "Abstract: (none provided)",
+    ]
+    return [
+        {"role": "system", "content": PAPER_EXPLANATION_SYSTEM},
+        {"role": "user", "content": "\n".join(lines)},
+    ]
