@@ -1,0 +1,46 @@
+from datetime import UTC, datetime
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
+
+
+class ProjectInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    title: str = Field(min_length=1, max_length=200)
+    researchQuestion: str = Field(min_length=1, max_length=5000)
+    keywords: list[str] = Field(default_factory=list, max_length=30)
+    yearFrom: StrictInt | None = Field(default=None, ge=1, le=9999)
+    yearTo: StrictInt | None = Field(default=None, ge=1, le=9999)
+    maxPaperCount: StrictInt | None = Field(default=None, ge=1, le=1000)
+
+    @field_validator("keywords")
+    @classmethod
+    def normalize_keywords(cls, values):
+        result = []
+        for value in values:
+            value = value.strip()
+            if not value or len(value) > 100:
+                raise ValueError("Keywords must contain 1–100 characters")
+            if value.casefold() not in {item.casefold() for item in result}:
+                result.append(value)
+        return result
+
+    @model_validator(mode="after")
+    def valid_range(self):
+        if self.yearFrom is not None and self.yearTo is not None and self.yearFrom > self.yearTo:
+            raise ValueError("Start year must not exceed end year")
+        return self
+
+
+class Project(ProjectInput):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    status: str
+    createdAt: datetime
+    updatedAt: datetime
+
+    @field_validator("createdAt", "updatedAt")
+    @classmethod
+    def utc_timestamps(cls, value):
+        # SQLite test storage omits timezone information; all stored times are UTC.
+        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
