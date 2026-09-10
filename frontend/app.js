@@ -434,8 +434,9 @@ function literature(project, left, aside, actions, remove) {
         filters, 'secondary set-aside-toggle');
       toggle.addEventListener('click', () => { showSetAside = !showSetAside; refresh().catch(showError); });
     }
-    const oaToggle = element('button', openAccessOnly ? 'All papers' : 'Open access only',
+    const oaToggle = element('button', 'Open access only',
       filters, `secondary set-aside-toggle${openAccessOnly ? ' active' : ''}`);
+    oaToggle.setAttribute('aria-pressed', String(openAccessOnly));
     oaToggle.addEventListener('click', () => { openAccessOnly = !openAccessOnly; refresh().catch(showError); });
     const clusterIds = [...new Set(visible.map(paper => paper.clusterId))]
       .filter(id => id !== null && id !== undefined)
