@@ -11,11 +11,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from .config import database_url, openalex_headers
+from .config import database_url, openai_headers, openalex_headers
 from .domain import Project, ProjectInput
 from .persistence import ProjectRepository
 from .service import ProjectNotFound, ProjectService
 from .papers import ProjectPaper, ProviderError, SearchRun
+from .providers.openai import OpenAIEmbeddingProvider
 from .providers.openalex import OpenAlexProvider
 from .search import SearchService
 from .search_persistence import SearchConflict
@@ -23,14 +24,21 @@ from .search_persistence import SearchConflict
 FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
 
 
-def create_app(engine=None, provider=None):
+def create_app(engine=None, provider=None, embedding_provider=None):
     @asynccontextmanager
     async def lifespan(app):
         app.state.engine = (
             engine if engine is not None else create_engine(database_url(), pool_pre_ping=True)
         )
-        async with httpx.AsyncClient(headers=openalex_headers(), timeout=15.0) as client:
-            app.state.search = SearchService(app.state.engine, provider or OpenAlexProvider(client))
+        async with (
+            httpx.AsyncClient(headers=openalex_headers(), timeout=15.0) as client,
+            httpx.AsyncClient(headers=openai_headers(), timeout=30.0) as openai_client,
+        ):
+            app.state.search = SearchService(
+                app.state.engine,
+                provider or OpenAlexProvider(client),
+                embedding_provider or OpenAIEmbeddingProvider(openai_client),
+            )
             try:
                 yield
             finally:
@@ -88,7 +96,15 @@ def create_app(engine=None, provider=None):
             504
             if exc.code == "TIMEOUT"
             else 503
-            if exc.code in {"RATE_LIMITED", "AUTHENTICATION", "UNAVAILABLE"}
+            if exc.code
+            in {
+                "RATE_LIMITED",
+                "AUTHENTICATION",
+                "UNAVAILABLE",
+                "EMBEDDING_UNAUTHORIZED",
+                "EMBEDDING_RATE_LIMITED",
+                "EMBEDDING_UNAVAILABLE",
+            }
             else 502
         )
         return JSONResponse(status_code=status, content={"detail": str(exc), "code": exc.code})

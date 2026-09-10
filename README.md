@@ -1,8 +1,9 @@
 # ResearchPilot
 
-Phases 1–3: manage research projects, retrieve real scholarly papers from OpenAlex, and
-deduplicate and relevance-rank them with deterministic algorithms. Python 3.12+, FastAPI,
-SQLAlchemy, PostgreSQL, and a same-origin vanilla JavaScript frontend.
+Phases 1–4: manage research projects, retrieve real scholarly papers from OpenAlex,
+deduplicate and relevance-rank them with deterministic algorithms, then embed and
+cluster them into groups. Python 3.12+, FastAPI, SQLAlchemy, PostgreSQL, NumPy, an
+OpenAI embeddings call, and a same-origin vanilla JavaScript frontend.
 
 ## Run locally
 
@@ -16,13 +17,16 @@ docker compose up -d --wait
 docker compose exec -T db psql -U researchpilot -d researchpilot -v ON_ERROR_STOP=1 < migrations/001_projects.sql
 docker compose exec -T db psql -U researchpilot -d researchpilot -v ON_ERROR_STOP=1 < migrations/002_scholarly_search.sql
 docker compose exec -T db psql -U researchpilot -d researchpilot -v ON_ERROR_STOP=1 < migrations/003_deduplication_relevance.sql
+docker compose exec -T db psql -U researchpilot -d researchpilot -v ON_ERROR_STOP=1 < migrations/004_embeddings_clusters.sql
 uv run --env-file .env uvicorn researchpilot.api:app --host 127.0.0.1 --reload
 ```
 
 Open http://127.0.0.1:8000. API documentation is at `/docs`.
 Apply each numbered SQL migration once, in order; rerunning one fails without
-changing existing tables. If upgrading from Phase 1, apply `002` and `003`; from Phase 2,
-apply only `003_deduplication_relevance.sql`. Database startup never silently creates tables.
+changing existing tables. When upgrading, apply only the migrations after your last
+applied number (for example, from Phase 3, apply only `004_embeddings_clusters.sql`).
+Database startup never silently creates tables. Set `OPENAI_API_KEY` in `.env` before
+running a search — see [Phase 4](#phase-4-embed-and-cluster).
 Docker's named volume persists projects across restarts. The Compose password is
 only a local development credential. This phase is a local single-user application;
 authentication and public deployment are outside its scope.
@@ -177,3 +181,50 @@ or user relevance overrides. Ranking is lexical and explainable so results can b
 verified now, ahead of the Phase 4 embedding pipeline.
 
 Implementation details: [Phase 3](docs/phase-3.md).
+
+## Phase 4: embed and cluster
+
+After ranking, each successful search embeds its papers and groups them into
+clusters before the run is marked complete. Clustering is deterministic; the LLM is
+still not involved, and cluster names and the research map arrive in later phases.
+
+Set an OpenAI key in `.env` — searches now require it:
+
+```dotenv
+OPENAI_API_KEY=sk-your-key
+```
+
+`OPENAI_BASE_URL` optionally points at an OpenAI-compatible embeddings endpoint. The
+key is sent in the Authorization header, never in URLs or to the frontend. Restart
+the server after changing configuration. Do not commit `.env`.
+
+Each paper's title and abstract are embedded with OpenAI `text-embedding-3-small` at
+512 dimensions, behind an `EmbeddingProvider` interface. Vectors are stored on the
+shared `papers` table keyed by model; a later search reuses a stored vector instead
+of paying to recompute it. Requests are batched; a `504` is a timeout, a `503` an
+authentication or availability failure, a `502` an invalid response. A failed
+embedding leaves the previous papers and clusters intact.
+
+`clustering.py` runs k-means over the L2-normalized vectors in NumPy, choosing the
+cluster count by mean silhouette. Small clusters and points far from their centroid
+become **Uncategorized** (`clusterId` null). Kept clusters are relabeled by
+descending size, so the assignment is stable for a given set of vectors. The
+completed run reports `clusterCount`; `GET .../papers` carries each paper's
+`clusterId`, and the frontend groups the list by cluster with an Uncategorized
+section.
+
+`004_embeddings_clusters.sql` adds `papers.embedding` / `papers.embeddingModel`,
+`project_papers.clusterId`, and `search_runs.clusterCount` without rewriting rows;
+pre-Phase-4 papers re-embed on their next search.
+
+Deliberate omissions: no LLM cluster names or descriptions, no research map or
+paper-detail UI, no manual re-clustering or paper moves, no pgvector or
+nearest-neighbour search, no cross-project cluster reuse. Clustering is lexical
+input turned geometric so the grouping can be verified now, ahead of the Phase 5
+LLM naming.
+
+Provider tests use HTTPX mock transports; normal test runs make no external
+requests. Embedding reuse and cluster persistence are covered by the search suite,
+and `test_clustering.py` covers the algorithm directly.
+
+Implementation details: [Phase 4](docs/phase-4.md).

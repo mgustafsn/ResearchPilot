@@ -40,12 +40,46 @@ class RecordingProvider:
         return SearchResult(papers=self.papers, totalFound=len(self.papers))
 
 
+class RecordingEmbeddingProvider:
+    name = "Test embedding provider"
+    model = "test-embed"
+    dimension = 8
+
+    def __init__(self):
+        self.batches = []
+        self.error = None
+
+    async def embed(self, texts):
+        self.batches.append(list(texts))
+        if self.error:
+            raise self.error
+        return [self._vector(text) for text in texts]
+
+    def _vector(self, text):
+        for index, marker in enumerate(("alpha", "bravo", "charlie")):
+            if marker in text:
+                vector = [0.0] * self.dimension
+                vector[index] = 10.0
+                return vector
+        return [1.0] * self.dimension
+
+
 @pytest.fixture
 def search_client(engine):
     provider = RecordingProvider()
-    with TestClient(create_app(engine, provider)) as client:
+    embedder = RecordingEmbeddingProvider()
+    with TestClient(create_app(engine, provider, embedder)) as client:
         project = client.post("/api/projects", json=DATA).json()
         yield client, provider, f"/api/projects/{project['id']}"
+
+
+@pytest.fixture
+def search_client_with_embedder(engine):
+    provider = RecordingProvider()
+    embedder = RecordingEmbeddingProvider()
+    with TestClient(create_app(engine, provider, embedder)) as client:
+        project = client.post("/api/projects", json=DATA).json()
+        yield client, provider, embedder, f"/api/projects/{project['id']}"
 
 
 def test_search_persists_real_metadata_and_snapshot(search_client, engine):
@@ -63,10 +97,12 @@ def test_search_persists_real_metadata_and_snapshot(search_client, engine):
     assert run["keywords"] == DATA["keywords"]
     assert run["paperCount"] == 1
     assert run["duplicateCount"] == 0
+    assert run["clusterCount"] == 1
     assert run["startedAt"] and run["finishedAt"]
     papers = client.get(url + "/papers").json()
     assert papers[0]["title"] == WORK["title"]
     assert papers[0]["sourceId"] == WORK["id"]
+    assert papers[0]["clusterId"] == 0
     assert client.get(url).json()["status"] == "COMPLETED"
     assert client.get(url + "/searches").json()[0] == run
     with TestClient(create_app(engine, provider)) as restarted:
@@ -130,6 +166,53 @@ def test_search_deduplicates_ranks_and_persists_counts(search_client):
     assert papers[0]["relevanceScore"] > papers[1]["relevanceScore"]
 
 
+def _grouped_papers():
+    return [
+        normalize_work(
+            WORK
+            | {
+                "id": f"https://openalex.org/W1{['alpha', 'bravo', 'charlie'].index(group)}{n}",
+                "doi": f"https://doi.org/10.5000/{group}-{n}",
+                "title": f"{group} paper {n}",
+                "abstract_inverted_index": None,
+            }
+        )
+        for group in ("alpha", "bravo", "charlie")
+        for n in range(5)
+    ]
+
+
+def test_search_embeds_and_clusters_papers(search_client_with_embedder):
+    client, provider, embedder, url = search_client_with_embedder
+    provider.papers = _grouped_papers()
+    run = client.post(url + "/search").json()
+    assert run["clusterCount"] == 3
+    papers = client.get(url + "/papers").json()
+    assert {paper["clusterId"] for paper in papers} == {0, 1, 2}
+    assert sum(len(batch) for batch in embedder.batches) == 15
+
+
+def test_embeddings_are_reused_on_a_second_search(search_client_with_embedder):
+    client, provider, embedder, url = search_client_with_embedder
+    provider.papers = _grouped_papers()
+    client.post(url + "/search")
+    client.post(url + "/search")
+    assert len(embedder.batches) == 1
+
+
+def test_embedding_failure_preserves_previous_results(search_client_with_embedder):
+    client, provider, embedder, url = search_client_with_embedder
+    client.post(url + "/search")
+    original = client.get(url + "/papers").json()
+    embedder.error = ProviderError("EMBEDDING_UNAVAILABLE")
+    provider.papers = [normalize_work(WORK | {"id": "https://openalex.org/W999"})]
+    assert client.post(url + "/search").status_code == 503
+    assert client.get(url + "/papers").json() == original
+    history = client.get(url + "/searches").json()
+    assert history[0]["status"] == "FAILED"
+    assert history[0]["errorCode"] == "EMBEDDING_UNAVAILABLE"
+
+
 def test_failure_preserves_previous_results(search_client):
     client, provider, url = search_client
     client.post(url + "/search")
@@ -170,7 +253,7 @@ def test_search_in_progress_blocks_mutations_and_recovers(search_client, engine)
     assert provider.calls == []
     with Session(engine) as session, session.begin():
         row = session.get(SearchRunRow, run.id)
-        row.startedAt = datetime.now(UTC) - timedelta(minutes=3)
+        row.startedAt = datetime.now(UTC) - timedelta(minutes=5)
     history = client.get(url + "/searches").json()
     assert history[0]["errorCode"] == "INTERRUPTED"
     assert client.get(url).json()["status"] == "FAILED"
@@ -178,7 +261,7 @@ def test_search_in_progress_blocks_mutations_and_recovers(search_client, engine)
     from researchpilot.search_persistence import SearchConflict
 
     with pytest.raises(SearchConflict):
-        client.app.state.search.finish(run, result=SearchResult(papers=[], totalFound=0))
+        client.app.state.search.finish(run, error=ProviderError("INTERRUPTED"))
     assert len(client.get(url + "/papers").json()) == 1
 
 

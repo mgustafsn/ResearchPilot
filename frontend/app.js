@@ -285,21 +285,35 @@ function literature(project, left, aside, actions, remove) {
         : 'Find real scholarly papers from OpenAlex using your research question.', empty, 'muted');
       return;
     }
-    for (const paper of papers) {
-      const row = element('article', '', papersBody, 'project-row paper-row');
-      element('h3', paper.title || 'Title unavailable', row);
-      const authors = paper.authors.map(author => author.name).filter(Boolean);
-      const authorLabel = authors.length ? authors.slice(0, 3).join(', ') + (authors.length > 3 ? ' et al.' : '') : 'Authors unavailable';
-      element('p', `${authorLabel} · ${paper.publicationYear ?? 'Year unavailable'}`, row, 'paper-metadata');
-      if (paper.venue) element('p', paper.venue, row, 'paper-metadata');
-      if (paper.doi) element('p', `DOI: ${paper.doi}`, row, 'paper-doi');
-      const footer = element('div', '', row, 'project-meta');
-      element('span', `Relevance: ${Math.round((paper.relevanceScore ?? 0) * 100)}% · Citations: ${paper.citationCount ?? 'Unavailable'} · ${paper.source}`, footer);
-      const source = link('View source', paper.sourceUrl, footer, 'open-link');
-      source.target = '_blank';
-      source.rel = 'noopener noreferrer';
-      source.append(icon('arrow'));
+    const clusterIds = [...new Set(papers.map(paper => paper.clusterId))]
+      .filter(id => id !== null && id !== undefined)
+      .sort((a, b) => a - b);
+    const groups = clusterIds.map(id => [`Cluster ${id + 1}`, papers.filter(p => p.clusterId === id)]);
+    const uncategorized = papers.filter(p => p.clusterId === null || p.clusterId === undefined);
+    if (uncategorized.length) groups.push(['Uncategorized', uncategorized]);
+    for (const [name, members] of groups) {
+      if (groups.length > 1) {
+        const header = element('div', '', papersBody, 'section-tabs');
+        const label = element('span', name, header, 'selected-tab');
+        element('span', String(members.length), label, 'count');
+      }
+      for (const paper of members) paperRow(paper, papersBody);
     }
+  }
+  function paperRow(paper, parent) {
+    const row = element('article', '', parent, 'project-row paper-row');
+    element('h3', paper.title || 'Title unavailable', row);
+    const authors = paper.authors.map(author => author.name).filter(Boolean);
+    const authorLabel = authors.length ? authors.slice(0, 3).join(', ') + (authors.length > 3 ? ' et al.' : '') : 'Authors unavailable';
+    element('p', `${authorLabel} · ${paper.publicationYear ?? 'Year unavailable'}`, row, 'paper-metadata');
+    if (paper.venue) element('p', paper.venue, row, 'paper-metadata');
+    if (paper.doi) element('p', `DOI: ${paper.doi}`, row, 'paper-doi');
+    const footer = element('div', '', row, 'project-meta');
+    element('span', `Relevance: ${Math.round((paper.relevanceScore ?? 0) * 100)}% · Citations: ${paper.citationCount ?? 'Unavailable'} · ${paper.source}`, footer);
+    const source = link('View source', paper.sourceUrl, footer, 'open-link');
+    source.target = '_blank';
+    source.rel = 'noopener noreferrer';
+    source.append(icon('arrow'));
   }
   function showSearch(history) {
     searchBody.replaceChildren();
@@ -314,7 +328,7 @@ function literature(project, left, aside, actions, remove) {
     }
     element('p', busy ? 'Searching scholarly papers…'
       : latest.status === 'FAILED' ? latest.errorMessage
-      : `${latest.paperCount} papers saved · ${latest.totalFound.toLocaleString()} matches in OpenAlex`,
+      : `${latest.paperCount} papers saved · ${latest.clusterCount} ${latest.clusterCount === 1 ? 'cluster' : 'clusters'} · ${latest.totalFound.toLocaleString()} matches in OpenAlex`,
       searchBody, latest.status === 'FAILED' ? 'search-failure' : 'search-status');
     if (latest.status === 'FAILED' && history.some(run => run.status === 'COMPLETED')) {
       element('p', 'Results from your last successful search are still available.', searchBody, 'field-help');

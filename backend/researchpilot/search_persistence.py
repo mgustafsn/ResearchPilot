@@ -42,6 +42,8 @@ class PaperRow(Base):
     publicationUrl: Mapped[str | None] = mapped_column(Text)
     openAccessUrl: Mapped[str | None] = mapped_column(Text)
     isOpenAccess: Mapped[bool | None]
+    embedding: Mapped[list | None] = mapped_column(JSON)
+    embeddingModel: Mapped[str | None] = mapped_column(Text)
 
 
 class SearchRunRow(Base):
@@ -61,6 +63,7 @@ class SearchRunRow(Base):
     paperCount: Mapped[int]
     skippedCount: Mapped[int]
     duplicateCount: Mapped[int]
+    clusterCount: Mapped[int]
     errorCode: Mapped[str | None] = mapped_column(String(32))
     errorMessage: Mapped[str | None] = mapped_column(Text)
 
@@ -74,6 +77,7 @@ class ProjectPaperRow(Base):
     searchRunId: Mapped[UUID] = mapped_column(ForeignKey("search_runs.id", ondelete="CASCADE"))
     position: Mapped[int]
     relevanceScore: Mapped[float]
+    clusterId: Mapped[int | None]
 
 
 class SearchRepository:
@@ -101,16 +105,40 @@ class SearchRepository:
 
     def papers(self, project_id):
         return [
-            ProjectPaper.model_validate({**paper.__dict__, "relevanceScore": relevance_score})
-            for paper, relevance_score in self.session.execute(
-                select(PaperRow, ProjectPaperRow.relevanceScore)
+            ProjectPaper.model_validate(
+                {**paper.__dict__, "relevanceScore": relevance_score, "clusterId": cluster_id}
+            )
+            for paper, relevance_score, cluster_id in self.session.execute(
+                select(PaperRow, ProjectPaperRow.relevanceScore, ProjectPaperRow.clusterId)
                 .join(ProjectPaperRow, ProjectPaperRow.paperId == PaperRow.id)
                 .where(ProjectPaperRow.projectId == project_id)
                 .order_by(ProjectPaperRow.position)
             )
         ]
 
-    def replace_papers(self, project_id, run_id, ranked_papers: list[RankedPaper]):
+    def existing_embeddings(self, paper_ids, model):
+        ids = list(paper_ids)
+        if not ids:
+            return {}
+        rows = self.session.execute(
+            select(PaperRow.id, PaperRow.embedding).where(
+                PaperRow.id.in_(ids),
+                PaperRow.embeddingModel == model,
+                PaperRow.embedding.is_not(None),
+            )
+        )
+        return {paper_id: vector for paper_id, vector in rows}
+
+    def replace_papers(
+        self,
+        project_id,
+        run_id,
+        ranked_papers: list[RankedPaper],
+        *,
+        fresh_vectors,
+        model,
+        clusters,
+    ):
         self.session.execute(delete(ProjectPaperRow).where(ProjectPaperRow.projectId == project_id))
         unique = {item.paper.id: item for item in ranked_papers}
         insert = (
@@ -119,7 +147,11 @@ class SearchRepository:
         # Stable ordering prevents deadlocks when projects share works.
         for paper_id in sorted(unique):
             values = unique[paper_id].paper.model_dump()
+            if paper_id in fresh_vectors:
+                values["embedding"] = fresh_vectors[paper_id]
+                values["embeddingModel"] = model
             statement = insert(PaperRow).values(**values)
+            # Reused papers omit the embedding columns, so a stored vector is left intact.
             self.session.execute(
                 statement.on_conflict_do_update(
                     index_elements=["id"],
@@ -133,13 +165,14 @@ class SearchRepository:
                 searchRunId=run_id,
                 position=position,
                 relevanceScore=item.relevance_score,
+                clusterId=clusters.get(item.paper.id),
             )
             for position, item in enumerate(unique.values())
         )
         return len(unique)
 
 
-SEARCH_LEASE_SECONDS = 120
+SEARCH_LEASE_SECONDS = 240
 
 
 class SearchConflict(Exception):

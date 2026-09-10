@@ -37,6 +37,7 @@ class Paper(BaseModel):
 
 class ProjectPaper(Paper):
     relevanceScore: float = Field(ge=0, le=1)
+    clusterId: int | None = None
 
 
 class SearchParameters(BaseModel):
@@ -67,6 +68,7 @@ class SearchRun(BaseModel):
     paperCount: int = 0
     skippedCount: int = 0
     duplicateCount: int = 0
+    clusterCount: int = 0
     errorCode: str | None = None
     errorMessage: str | None = None
 
@@ -90,6 +92,10 @@ class ProviderError(Exception):
         "QUERY_REJECTED": "The scholarly provider rejected this query. Try a shorter research topic.",
         "INTERRUPTED": "The search was interrupted. Please run it again.",
         "INTERNAL": "The search could not be completed. Please try again.",
+        "EMBEDDING_UNAUTHORIZED": "The embedding service rejected authentication. Check the server API key.",
+        "EMBEDDING_RATE_LIMITED": "The embedding service is rate limited. Please try again later.",
+        "EMBEDDING_UNAVAILABLE": "The embedding service is unavailable. Please try again later.",
+        "EMBEDDING_INVALID_RESPONSE": "The embedding service returned an invalid response. Please try again.",
     }
 
     def __init__(self, code):
