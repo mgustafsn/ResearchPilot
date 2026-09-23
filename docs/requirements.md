@@ -765,6 +765,8 @@ The system must gracefully handle:
 
 A failure in one provider should not necessarily fail the entire research search.
 
+Verified by NFR-REL-1..4.
+
 ---
 
 # 29. Logging
@@ -782,6 +784,8 @@ Backend logs should record:
 * total search duration
 
 Do not log full API keys or sensitive authentication credentials.
+
+Verified by NFR-OBS-1..2.
 
 ---
 
@@ -830,6 +834,32 @@ Users should be able to understand:
 ## Reproducibility
 
 Store enough information about each search to understand how the result was generated.
+
+## Measurable requirements
+
+Every NFR in this table is enforced by the automated suite in `backend/tests/nfr/` and must
+pass in CI. Performance tests fail above the CI ceiling (3 × target); measured values are
+published in the CI `test-report` artifact.
+
+| ID | Requirement | Target | CI ceiling | Test |
+|---|---|---|---|---|
+| NFR-PERF-1 | The research map for a 250-paper project loads, with all 250 paper rows visible, from navigation start | ≤ 1.5 s | 4.5 s | `test_nfr_perf_1_map_renders_250_papers` |
+| NFR-PERF-2 | On that map, selecting a subtopic tab and toggling "Open access only" each re-render | ≤ 0.3 s | 0.9 s | `test_nfr_perf_2_tab_and_filter_rerender` |
+| NFR-PERF-3 | Backend analysis of 250 papers (deduplication, lexical ranking, semantic ranking, filtering, clustering) with precomputed 512-dimension vectors | ≤ 1.0 s | 3.0 s | `test_nfr_perf_3_backend_analysis_of_250_papers` |
+| NFR-PERF-4 | `GET` papers, subtopics, searches and queries for a 250-paper project, p95 over 20 calls each | ≤ 0.2 s | 0.6 s | `test_nfr_perf_4_read_endpoints_p95` |
+| NFR-REL-1 | Each documented failure class returns its HTTP status and error code and leaves the previous completed results, subtopics and manual edits unchanged; a search that finds no papers completes empty instead of failing | pass/fail | — | `test_nfr_rel_1_failures_return_codes_and_preserve_results`, `test_nfr_rel_1_no_papers_completes_empty` |
+| NFR-REL-2 | Optional LLM steps (query expansion, cluster naming, explanation) degrade instead of failing the search | pass/fail | — | `test_nfr_rel_2_expansion_failure_falls_back_to_keywords`, `test_nfr_rel_2_naming_failure_keeps_numbered_clusters`, `test_nfr_rel_2_explanation_timeout_is_504` |
+| NFR-REL-3 | When some queries fail and at least one succeeds, the search completes with the surviving results; it fails only when every query fails, with the first failure's code | pass/fail | — | `test_nfr_rel_3_partial_query_failure_keeps_surviving_results`, `test_nfr_rel_3_all_queries_failing_fails_with_first_code` |
+| NFR-REL-4 | No stage blocks past its deadline; a hanging provider at retrieval, embedding or naming ends the stage with its timeout behavior | pass/fail | — | `test_nfr_rel_4_hanging_retrieval_times_out`, `test_nfr_rel_4_hanging_embedding_times_out`, `test_nfr_rel_4_hanging_naming_falls_back` |
+| NFR-SEC-1 | Distinctive fake `OPENAI_API_KEY` and `OPENALEX_API_KEY` values never appear in any API response body or header, any served page or asset, or any log record during a full run | pass/fail | — | `test_nfr_sec_1_api_keys_never_leave_the_server` |
+| NFR-SEC-2 | HTML or script in provider metadata renders as inert text on the paper card and in the drawer | pass/fail | — | `test_nfr_sec_2_metadata_html_is_inert` |
+| NFR-SEC-3 | A link is rendered only for an `http:` or `https:` URL; other schemes coming from a provider produce no `href` | pass/fail | — | `test_nfr_sec_3_only_http_links_survive_normalization`, `test_nfr_sec_3_manual_reference_rejects_script_urls`, `test_nfr_sec_3_rendered_links_are_http_or_local` |
+| NFR-SEC-4 | Every write endpoint rejects unknown fields and out-of-range values with 422 | pass/fail | — | `test_nfr_sec_4_write_endpoints_reject_bad_input` |
+| NFR-OBS-1 | One successful search emits a log record for each §29 item, including duplicates removed | pass/fail | — | `test_nfr_obs_1_search_logs_every_required_event` |
+| NFR-OBS-2 | Provider and LLM failures log their error code and never the response payload, request URL or exception text | pass/fail | — | `test_nfr_obs_2_failures_log_codes_not_payloads` |
+| NFR-TRACE-1 | Every completed run persists enough to reproduce it: description, keywords, generated and failed queries, year range, paper limit, provider, timestamps and counts | pass/fail | — | `test_nfr_trace_1_completed_run_is_reproducible` |
+| NFR-TRACE-2 | Scholarly metadata comes only from the provider, even when LLM output contains metadata-like text | pass/fail | — | `test_nfr_trace_2_llm_output_never_becomes_metadata` |
+| ACC-38 | The §38 MVP scenario is walked end to end with fake providers, from project creation through paper links | pass/fail | — | `test_acc_38_mvp_scenario` |
 
 ---
 

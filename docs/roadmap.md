@@ -51,11 +51,15 @@ move destinations remain usable. Regression coverage includes SQLite, Chromium w
 fake providers, and PostgreSQL migrations/concurrency. PostgreSQL verification is
 required before sign-off.
 
+### Quality
+
+| Feature | What it does | Note |
+| --- | --- | --- |
+| Non-functional requirements | Measurable NFRs enforced in CI and the §38 acceptance test | [non-functional-requirements](features/non-functional-requirements.md) |
+
 ## Planned
 
-| Feature | What it does | Design |
-| --- | --- | --- |
-| Acceptance test and logging | Automate the §38 end-to-end scenario; audit logging against §29 | — |
+Nothing planned inside the MVP.
 
 Requirements are not reduced to fit the demo. Institutional access, exports/Zotero, PDF
 ingestion, citation graphs, research-gap analysis, and collaboration remain outside the
