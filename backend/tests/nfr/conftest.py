@@ -85,6 +85,11 @@ def real_adapter_app(engine, monkeypatch):
         if request.url.path.endswith("/embeddings"):
             data = [{"index": i, "embedding": _vector(t)} for i, t in enumerate(body["input"])]
             return httpx.Response(200, json={"data": data})
+        if "openai" in fail:
+            # Only chat/completions calls fail; embeddings still succeed so the search
+            # completes via the query-expansion/cluster-naming fallbacks.
+            status, fail_body = fail["openai"]
+            return httpx.Response(status, text=fail_body)
         schema = body["response_format"]["json_schema"]["name"]
         content = {
             "query_expansion": {"queries": ["llm code generation", "llm software testing"]},

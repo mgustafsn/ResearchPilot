@@ -19,7 +19,9 @@ REQUIRED_EVENTS = {
     "duplicates removed": r"Search analyzed .*duplicates=\d+",
     "relevance duration": r"Search analyzed .*duration_ms=\d+",
     "clustering duration": r"Search clustering .*duration_ms=\d+",
-    "LLM call": r"OpenAI (query expansion|cluster naming|embeddings batch)",
+    "LLM query expansion": r"OpenAI query expansion",
+    "LLM cluster naming": r"OpenAI cluster naming",
+    "LLM embeddings": r"OpenAI embeddings batch=\d+",
     "token usage": r"OpenAI completion usage .*total_tokens=\d+",
     "total duration": r"Search completed .*duration_ms=\d+",
 }
@@ -40,6 +42,13 @@ def test_nfr_obs_2_failures_log_codes_not_payloads(real_adapter_app, caplog, mon
     assert response.json()["code"] == "UNAVAILABLE"
     del real_adapter_app.fail["openalex"]
 
+    real_adapter_app.fail["openai"] = (500, "MARKER-LLM-PAYLOAD-7d21")
+    response = real_adapter_app.client.post(real_adapter_app.url + "/search")
+    # Query expansion and cluster naming both fall back on an LLM failure; the search
+    # still completes.
+    assert response.status_code == 200
+    del real_adapter_app.fail["openai"]
+
     def explode(*args, **kwargs):
         raise RuntimeError("MARKER-EXCEPTION-9c3b")
 
@@ -53,8 +62,14 @@ def test_nfr_obs_2_failures_log_codes_not_payloads(real_adapter_app, caplog, mon
         for r in caplog.records
         if r.name.startswith("researchpilot")
     )
-    assert "UNAVAILABLE" in records and "INTERNAL" in records
-    for marker in ("MARKER-PAYLOAD-5a1e", "MARKER-EXCEPTION-9c3b", "api.openalex.org"):
+    assert "UNAVAILABLE" in records and "INTERNAL" in records and "LLM_UNAVAILABLE" in records
+    for marker in (
+        "MARKER-PAYLOAD-5a1e",
+        "MARKER-LLM-PAYLOAD-7d21",
+        "MARKER-EXCEPTION-9c3b",
+        "api.openalex.org",
+        "/chat/completions",
+    ):
         assert marker not in records, marker
 
 
@@ -117,7 +132,9 @@ def test_nfr_trace_2_llm_output_never_becomes_metadata(search_client_named):
     )
     client.post(url + "/search")
     served = client.get(url + "/papers").json()
-    client.post(f"{url}/papers/{served[0]['id']}/explanation")
+    named_clusters = {s["clusterId"] for s in client.get(url + "/subtopics").json()}
+    target = next(p for p in served if p["clusterId"] in named_clusters)
+    client.post(f"{url}/papers/{target['id']}/explanation")
     served = {p["sourceId"]: p for p in client.get(url + "/papers").json()}
     for original in provider.papers:
         expected = original.model_dump(mode="json")
