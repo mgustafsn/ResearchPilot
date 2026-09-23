@@ -79,6 +79,7 @@ class CompletedSearch:
     cluster_count: int
     subtopics: dict[int, ClusterNaming]
     naming_error: str | None
+    failed_queries: list[str]
 
 
 def _embedding_text(paper: Paper) -> str:
@@ -218,7 +219,7 @@ class SearchService:
                 .values(stage=stage)
             )
 
-    async def _prepare(self, run, result) -> CompletedSearch:
+    async def _prepare(self, run, result, failed_queries) -> CompletedSearch:
         """Deduplicate, embed, rank by similarity, filter, and cluster — outside a transaction."""
         analysis_started = time.perf_counter()
         await asyncio.to_thread(self._set_stage, run.id, "ANALYZING")
@@ -287,6 +288,7 @@ class SearchService:
             cluster_count=cluster_count,
             subtopics=subtopics,
             naming_error=naming_error,
+            failed_queries=failed_queries,
         )
 
     async def _expand_queries(self, run):
@@ -315,16 +317,35 @@ class SearchService:
         return expansion.queries or fallback
 
     async def _retrieve(self, run, queries):
+        """Retrieve every query; keep survivors, fail only when every query failed."""
         per_query = max(1, (run.parameters.maxPaperCount + len(queries) - 1) // len(queries))
         parameters = [
             run.parameters.model_copy(update={"query": query, "maxPaperCount": per_query})
             for query in queries
         ]
-        results = await asyncio.gather(*(self.provider.search(item) for item in parameters))
-        return SearchResult(
-            papers=[paper for result in results for paper in result.papers],
-            totalFound=sum(result.totalFound for result in results),
-            skippedCount=sum(result.skippedCount for result in results),
+        outcomes = await asyncio.gather(
+            *(self.provider.search(item) for item in parameters), return_exceptions=True
+        )
+        results, failed, first_error = [], [], None
+        for query, outcome in zip(queries, outcomes, strict=True):
+            if isinstance(outcome, ProviderError):
+                # Never log the query text: it can contain the user's own words.
+                logger.warning("Search query failed run=%s code=%s", run.id, outcome.code)
+                failed.append(query)
+                first_error = first_error or outcome
+            elif isinstance(outcome, BaseException):
+                raise outcome
+            else:
+                results.append(outcome)
+        if not results:
+            raise first_error
+        return (
+            SearchResult(
+                papers=[paper for result in results for paper in result.papers],
+                totalFound=sum(result.totalFound for result in results),
+                skippedCount=sum(result.skippedCount for result in results),
+            ),
+            failed,
         )
 
     async def _name_clusters(self, run, ranked, clusters, cluster_count):
@@ -388,6 +409,7 @@ class SearchService:
                 latest.skippedCount = completed.skipped_count
                 latest.duplicateCount = completed.duplicate_count
                 latest.filteredCount = completed.filtered_count
+                latest.failedQueries = completed.failed_queries
                 latest.clusterCount = completed.cluster_count
                 latest.namingError = completed.naming_error
                 latest.status = "COMPLETED"
@@ -407,8 +429,10 @@ class SearchService:
         try:
             queries = await self._expand_queries(run)
             await asyncio.to_thread(self._set_generated_queries, run.id, queries)
-            result = await asyncio.wait_for(self._retrieve(run, queries), SEARCH_TIMEOUT_SECONDS)
-            completed = await self._prepare(run, result)
+            result, failed_queries = await asyncio.wait_for(
+                self._retrieve(run, queries), SEARCH_TIMEOUT_SECONDS
+            )
+            completed = await self._prepare(run, result, failed_queries)
             finished = await asyncio.to_thread(self.finish, run, completed=completed)
         except (TimeoutError, ProviderError) as exc:
             error = exc if isinstance(exc, ProviderError) else ProviderError("TIMEOUT")

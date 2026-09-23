@@ -934,7 +934,7 @@ def test_shared_paper_interleaved_searches_keep_vector_metadata(engine):
     asyncio.run(service.search(projects[0].id))
     first = service.start(projects[0].id)
     reused = asyncio.run(
-        service._prepare(first, SearchResult(papers=provider.papers, totalFound=1))
+        service._prepare(first, SearchResult(papers=provider.papers, totalFound=1), [])
     )
     provider.papers = [provider.papers[0].model_copy(update={"title": "alpha changed"})]
     asyncio.run(service.search(projects[1].id))
