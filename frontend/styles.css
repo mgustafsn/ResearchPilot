@@ -177,7 +177,9 @@ textarea { resize: vertical; min-height: 120px; }
 .subtopic-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 18px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; background: #fafbfe; }
 .subtopic-actions-label { color: var(--muted); font-size: 12px; font-weight: 500; }
 .subtopic-actions button { padding: 6px 12px; font-size: 12px; }
-.paper-list { border-top: 1px solid var(--border); padding-top: 2px; }
+.paper-list { border-top: 1px solid var(--border); }
+/* Paper rows reuse .project-row, whose first child has no top padding; keep it clear of the divider. */
+.paper-list > .paper-row:first-child { padding-top: 19px; }
 .cluster-tab { max-width: 100%; background: none; border: 1px solid var(--border); font: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; padding: 6px 13px; border-radius: 999px; color: var(--muted); }
 .cluster-tab-name { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cluster-tab:hover { border-color: var(--blue); color: #111936; }
