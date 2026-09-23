@@ -34,18 +34,26 @@ input changed.
 
 ## Live check
 
-Same description and keywords `["IaC"]` (year range and paper limit unset, matching the
-semantic-relevance baseline project "IaC (Phase 15 check)"), run against the dev database
-on 2026-09-23 with the OpenAlex/OpenAI providers behind `.env`.
+Same description, year range, and paper limit as the semantic-relevance baseline project
+"IaC (Phase 15 check)", run against the dev database on 2026-09-23 with the OpenAlex/OpenAI
+providers behind `.env`. Keywords differed: this run used `["IaC"]`, the baseline used
+`["Infrastructure as Code (IaC)"]`. Keywords feed both query generation and the semantic
+relevance anchor (embedded description plus keywords), so this comparison is indicative of
+the effect of dropping the description from retrieval, not a controlled experiment isolating
+that one variable.
 
 | | Before (6 long queries, semantic relevance run) | After (description-driven queries) |
 | --- | --- | --- |
 | Generated queries | 6 restatements of the full description (up to 17 words each) | 5 short queries, 2–4 words each |
-| totalFound | 200,144 | 2,940,542 |
+| totalFound (see caveat below) | 200,144 | 2,940,542 |
 | Unique (paperCount + filteredCount) | 90 | 98 |
 | filteredCount | 55 | 46 |
 | paperCount (kept) | 35 | 52 |
 | Subtopics | 2: "infrastructure automation and compliance", "Generative AI in Infrastructure Management" | 4: "Infrastructure as Code Practices and Challenges", "ai-driven infrastructure automation", "generative ai applications and design", "declarative infrastructure provisioning" |
+
+`totalFound` is OpenAlex's summed match count across each run's (different) queries, not
+the number of papers retrieved — the 200,144 → 2,940,542 swing is not a retrieval-volume
+claim.
 
 Generated queries (after): "Automation in cloud infrastructure", "Declarative provisioning",
 "Generative AI applications", "Infrastructure as Code", "Manual console work transition".
@@ -67,7 +75,4 @@ for calibration; short, on-topic titles cluster at the top of the relevance rang
 Short keyword queries retrieved more precisely on-topic papers (52 kept vs. 35) with fewer
 duplicates (2 vs. 12) and more, more specific subtopics (4 vs. 2, one of which — "generative
 ai applications and design" — reflects an off-topic cluster from the generic "Generative AI
-applications" query, still caught downstream by relevance filtering). `totalFound` rose
-because short, generic queries (e.g. "Infrastructure as Code") match far more of OpenAlex's
-corpus by title/abstract than a full sentence does; it counts provider-reported hits per
-query, not papers actually retrieved.
+applications" query, still caught downstream by relevance filtering).
