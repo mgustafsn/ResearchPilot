@@ -52,6 +52,33 @@ point `TEST_DATABASE_URL` at your application database.
 Run the application from this checkout: the frontend is a sibling source directory,
 not bundled inside the Python wheel.
 
+## Local GitHub issue agent
+
+The optional issue agent runs a local Ollama model through Aider in a separate Git
+worktree, then validates the diff and repository checks before pushing a draft PR.
+It is manually started for one open issue at a time. It does not merge PRs.
+
+Install Ollama and Aider outside the project environment, then pull the starter model:
+
+```sh
+uv tool install aider-chat --python 3.12
+ollama pull qwen2.5-coder:7b-instruct-q4_K_M
+gh auth login
+```
+
+Start `ollama serve` if Ollama is not already running, and run from this checkout:
+
+```sh
+uv run python scripts/issue_agent.py 123
+```
+
+The runner only accepts changes to `README.md`, `docs/`, `backend/researchpilot/`,
+`backend/tests/`, and `frontend/`, with a limit of five files and 250 changed lines.
+It rejects config, migration, script, and CI changes. It runs pytest, Ruff, the
+frontend JavaScript syntax check, and `uv build`. Failed runs leave their worktree at
+`.agent-worktrees/issue-<number>` for inspection; successful runs leave it there too.
+Review the draft PR before marking it ready or merging it.
+
 ## Current behavior
 
 The demo implements project CRUD, OpenAlex retrieval, deterministic DOI/identity/title
