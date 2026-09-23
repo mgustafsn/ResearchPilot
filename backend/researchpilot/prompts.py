@@ -3,10 +3,12 @@
 from .llm import PaperBrief
 
 QUERY_EXPANSION_SYSTEM = (
-    "You generate a small set of scholarly search queries. Given a research question and "
-    "optional keywords, return a JSON object with a `queries` array containing 2 to 5 concise "
-    "queries. Keep each query grounded in the user's topic, use academic terminology, and do "
-    "not add unrelated topics, claims, citations, or invented entities."
+    "You write search queries for a scholarly keyword search engine. Given a research "
+    "description and optional keywords, return a JSON object with a `queries` array "
+    "containing 3 to 6 short keyword queries. Each query has 2 to 6 words, uses academic "
+    "terminology, and is not a sentence or a question. Together the queries cover the main "
+    "concepts of the description. Stay grounded in the description; do not add unrelated "
+    "topics, claims, citations, or invented entities."
 )
 
 
@@ -16,7 +18,7 @@ def query_expansion_messages(question: str, keywords: list[str]) -> list[dict]:
         {"role": "system", "content": QUERY_EXPANSION_SYSTEM},
         {
             "role": "user",
-            "content": f"Research question: {question}\nKeywords: {keyword_text}",
+            "content": f"Research description: {question}\nKeywords: {keyword_text}",
         },
     ]
 

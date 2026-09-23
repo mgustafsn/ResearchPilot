@@ -5,7 +5,7 @@ import httpx
 import pytest
 
 from researchpilot.config import openai_headers
-from researchpilot.llm import PaperBrief
+from researchpilot.llm import PaperBrief, QueryExpansion
 from researchpilot.papers import ProviderError
 from researchpilot.providers.openai import (
     DIMENSION,
@@ -312,3 +312,21 @@ def test_explain_paper_rejects_malformed_response():
     with pytest.raises(ProviderError) as error:
         explain_paper(lambda r: _completion({"wrong": "key"}))
     assert error.value.code == "LLM_INVALID_RESPONSE"
+
+
+def test_query_expansion_drops_long_queries_and_caps_at_six():
+    long_query = "how are large language models used in modern software engineering practice"
+    result = QueryExpansion(queries=[long_query, *(f"short query {n}" for n in range(8))])
+    assert long_query not in result.queries
+    assert result.queries == [f"short query {n}" for n in range(6)]
+
+
+def test_query_expansion_prompt_asks_for_short_keyword_queries():
+    def handler(request):
+        body = json.loads(request.content)
+        system = body["messages"][0]["content"]
+        assert "3 to 6" in system and "2 to 6 words" in system
+        assert body["messages"][-1]["content"].startswith("Research description:")
+        return _completion({"queries": ["LLM automated testing"]})
+
+    assert expand_queries(handler).queries == ["LLM automated testing"]

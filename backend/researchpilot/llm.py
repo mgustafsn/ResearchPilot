@@ -9,7 +9,8 @@ DESCRIPTION_MAX = 500
 KEYWORDS_MAX = 8
 EXPLANATION_MAX = 400
 QUERY_MAX = 160
-QUERIES_MAX = 5
+QUERY_WORDS_MAX = 8
+QUERIES_MAX = 6
 
 
 class PaperBrief(BaseModel):
@@ -85,6 +86,8 @@ class QueryExpansion(BaseModel):
         cleaned: list[str] = []
         for item in value:
             query = " ".join(str(item).split())[:QUERY_MAX]
+            if len(query.split()) > QUERY_WORDS_MAX:
+                continue
             if query and query.casefold() not in {other.casefold() for other in cleaned}:
                 cleaned.append(query)
         return cleaned[:QUERIES_MAX]
