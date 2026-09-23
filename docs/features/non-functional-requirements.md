@@ -49,9 +49,13 @@ Every other NFR passed on first run. Some test-side hardening happened during re
 `junit_family = "xunit1"` to keep `record_property` output warning-free, and stronger
 NFR-PERF-2/SEC/OBS assertions — but that was test-only, not a product fix.
 
-## Known limitation
-
-Pytest's conftest discovery fails for one unusual invocation: listing a single NFR test
-node first together with paths outside `backend/tests/nfr/` in the same command line.
-Running with `-m nfr`, running the `backend/tests/nfr/` directory, and running the full
-suite are all unaffected — only that specific mixed invocation trips it.
+Because neither `backend/tests/` nor `backend/tests/nfr/` has an `__init__.py`, and each
+has its own `conftest.py`, pytest can lose track of which `conftest.py` applies partway
+through an unusual explicit invocation: an NFR test node listed first, then a path outside
+`backend/tests/nfr/`, then another NFR test file. For example,
+`uv run --extra dev pytest backend/tests/nfr/test_nfr_security.py::test_nfr_sec_2_metadata_html_is_inert backend/tests/test_browser.py backend/tests/nfr/test_nfr_performance.py`
+collects `test_nfr_performance.py`'s tests without ever loading
+`backend/tests/nfr/conftest.py`, so its `large_browser` and `large_api` fixtures come back
+"fixture not found". `-m nfr`, running the `backend/tests/nfr/` directory on its own, the
+full suite, and CI are all unaffected — only that specific ordering of mixed paths trips
+it.
