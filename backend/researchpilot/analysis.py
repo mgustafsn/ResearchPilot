@@ -122,7 +122,7 @@ STOPWORDS = frozenset(
 )
 
 # text-embedding-3-small cosine similarity to the research question: unrelated papers
-# sit near 0.25, clearly on-topic papers at 0.60 and above (docs/phase-15.md).
+# sit near 0.25, clearly on-topic papers at 0.60 and above (docs/features/semantic-relevance.md).
 SEMANTIC_FLOOR = 0.25
 SEMANTIC_CEILING = 0.60
 RELEVANCE_THRESHOLD = 0.40

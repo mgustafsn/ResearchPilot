@@ -1,4 +1,6 @@
-# Phase 3 implementation
+# Deduplication and ranking
+
+*Formerly Phase 3.*
 
 This document describes implemented behavior without changing the roadmap scope.
 

@@ -1,4 +1,6 @@
-# Phase 10 implementation
+# Query expansion
+
+*Formerly Phase 10.*
 
 This phase adds the first query-expansion slice. The original research question is always
 searched; a structured LLM response may add up to five related scholarly queries. Retrieval

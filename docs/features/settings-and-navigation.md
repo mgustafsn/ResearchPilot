@@ -1,4 +1,6 @@
-# Phase 14 implementation
+# Settings and navigation
+
+*Formerly Phase 14.*
 
 The primary navigation now covers all pages from requirements §32: New project,
 Library, and Settings. The `/settings` route is served by the same frontend shell and

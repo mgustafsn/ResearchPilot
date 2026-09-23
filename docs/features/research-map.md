@@ -1,4 +1,6 @@
-# Phase 6 implementation
+# Research map
+
+*Formerly Phase 6.*
 
 This document describes implemented behavior without changing the roadmap scope.
 

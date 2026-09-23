@@ -86,7 +86,7 @@ the prompt or specification was refined afterward.
   identifies one. Cap retrieval at 100 results per page, at most 10 pages, and skip
   — not fail on — an individual record with no usable identifier."
 - **Resulting quality:** both rules are now stated as explicit boundaries in
-  `docs/phase-2.md` rather than left implicit in code, specifically so a later phase
+  `docs/features/openalex-retrieval.md` rather than left implicit in code, specifically so a later phase
   touching this file does not reintroduce the looser reading.
 - **Commit:** `6b62b9a` "Implement Phase 2 OpenAlex retrieval and normalized paper
   persistence."
@@ -113,7 +113,7 @@ the prompt or specification was refined afterward.
   would have merged them anyway.
 - **Refined instruction:** "Don't let a normalized-title match override two distinct,
   explicit DOIs — treat that as two different papers, not a duplicate."
-- **Resulting quality:** `docs/phase-3.md` states this rule explicitly ("An identical
+- **Resulting quality:** `docs/features/deduplication-and-ranking.md` states this rule explicitly ("An identical
   normalized title does not merge two records that carry different explicit DOIs").
 - **Commit:** `50b1493` "Implement Phase 3 deduplication and relevance ranking."
 
@@ -195,7 +195,7 @@ the prompt or specification was refined afterward.
   focus into it on open and back to the triggering row on close, and make it
   dismissible by Escape and backdrop click, not only its Close button."
 - **Resulting quality:** the drawer is keyboard- and screen-reader-navigable, which
-  `docs/phase-6.md` documents as a explicit requirement of the implementation, not an
+  `docs/features/research-map.md` documents as a explicit requirement of the implementation, not an
   afterthought bolted on outside the phase.
 - **Commit:** `ee3e6e5` "Implement Phase 6 research map UI."
 
@@ -270,7 +270,7 @@ the prompt or specification was refined afterward.
   speculatively.
 - **Reasoning:** OpenAlex's own open-access data already aggregates Unpaywall, so a
   separate resolver call would mostly duplicate information already on hand — an
-  explicit reason recorded in `docs/phase-9.md`, not an oversight.
+  explicit reason recorded in `docs/features/open-access.md`, not an oversight.
 - **Expected:** an access pill on each paper card and its drawer, with no schema
   change since the value is derived, not stored.
 - **Actual — a real, concrete bug was introduced and caught in the same phase.**
@@ -288,7 +288,7 @@ the prompt or specification was refined afterward.
   this one."
 - **Resulting quality:** the fix is structural (a filter at the persistence
   boundary) rather than a one-off patch naming `accessStatus` specifically, which is
-  why it is documented in `docs/phase-9.md` as guarding "any computed field added
+  why it is documented in `docs/features/open-access.md` as guarding "any computed field added
   later." This is the flagship example in `docs/report.md` §5.2's Code Audit Log.
 - **Commit:** `86f9b42` "Implement Phase 9 open-access status and links." (UI
   iteration continues in Part B.)
@@ -313,7 +313,7 @@ the prompt or specification was refined afterward.
   during implementation — the "what if this LLM call fails" case was designed in
   from the start, unlike Phase 8's re-search guard, which was retrofitted.
 - **Commit:** part of the current (not yet merged to `main`) working-tree changes;
-  documented in `docs/phase-10.md`. See §7.2 of the report for why this and the two
+  documented in `docs/features/query-expansion.md`. See §7.2 of the report for why this and the two
   phases below are implemented and verified but not yet through the full
   merge/version-bump ritual.
 
@@ -341,7 +341,7 @@ the prompt or specification was refined afterward.
   8's existing "manual edits are never overwritten" rule, so no new rule had to be
   invented.
 - **Commit:** part of the current working-tree changes; documented in
-  `docs/phase-11.md`.
+  `docs/features/relevance-filtering.md`.
 
 ### Phase 13 — On-demand explanations on paper cards
 
@@ -353,7 +353,7 @@ the prompt or specification was refined afterward.
 - **Purpose:** surface the same trust-building explanation Phase 7 built for the
   drawer at the point a user is actually scanning cards, without a click first.
 - **Reasoning:** Phase 7 deliberately scoped explanations to the drawer only
-  (`docs/phase-7.md`'s "Deliberate omissions" names "no card-level ... line"
+  (`docs/features/classification-explanations.md`'s "Deliberate omissions" names "no card-level ... line"
   explicitly); Phase 13 lifts that scope once the drawer version had already proven
   the caching and generation logic correct.
 - **Expected:** the same explanation text and caching behavior as the drawer, now
@@ -364,7 +364,7 @@ the prompt or specification was refined afterward.
   explanation request for the old context is still in flight — resolved by having
   the card refresh from the project rather than trust a stale in-flight response.
 - **Commit:** part of the current working-tree changes; documented in
-  `docs/phase-13.md`.
+  `docs/features/card-explanations.md`.
 
 ---
 

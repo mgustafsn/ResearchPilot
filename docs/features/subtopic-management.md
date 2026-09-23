@@ -1,4 +1,6 @@
-# Phase 12 implementation
+# Subtopic management
+
+*Formerly Phase 12.*
 
 Users can now create, delete, and merge subtopics as well as rename them. A created
 subtopic receives the next free cluster id, is attached to the latest completed search

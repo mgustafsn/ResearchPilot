@@ -1,4 +1,4 @@
-# Description-Driven Search Queries (Phase 16) Implementation Plan
+# Description-Driven Search Queries Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -19,7 +19,7 @@
 - At most 10 saved queries per project (`SAVED_QUERIES_MAX = 10`).
 - Duplicate query text (case-insensitive) → 409. Cap exceeded → 422. No enabled query → 422 with code `NO_ENABLED_QUERIES`, and no run recorded.
 - All query edits return 409 during an active search (via `_editable`).
-- Work in worktree `../ResearchPilot-phase16` on branch `phase-16`, branched from `main`.
+- Work in worktree `../ResearchPilot-description-driven-queries` on branch `feat/description-driven-queries`, branched from `main`.
 - Gate before merge: `uv run --extra dev ruff check .`, `uv run --extra dev ruff format --check .`, `node --check frontend/app.js`, `uv build`, `uv run --extra dev pytest`, and `TEST_DATABASE_URL=postgresql+psycopg://researchpilot:local-development@localhost:5432/researchpilot_test uv run --extra dev pytest`.
 - End every commit message with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 
@@ -31,8 +31,8 @@
 
 ```bash
 cd /home/mgustafsson/Projects/Personal/ResearchPilot
-git worktree add -b phase-16 ../ResearchPilot-phase16 main
-cd ../ResearchPilot-phase16 && uv run --extra dev pytest -q | tail -1
+git worktree add -b feat/description-driven-queries ../ResearchPilot-description-driven-queries main
+cd ../ResearchPilot-description-driven-queries && uv run --extra dev pytest -q | tail -1
 ```
 Expected: `185 passed, 2 skipped`.
 
@@ -786,8 +786,8 @@ git commit -m "Add the search query editor and relabel the research description"
 
 **Files:**
 - Modify: `docs/requirements.md` (§3.1, §4, §7, §38 step 2)
-- Create: `docs/phase-16.md`
-- Modify: `README.md` ("Current behavior" query paragraph and API list), `docs/roadmap.md` (row 16, and the follow-up line now reads Phase 17)
+- Create: `docs/features/description-driven-queries.md`
+- Modify: `README.md` ("Current behavior" query paragraph and API list), `docs/roadmap.md` (move the entry from Planned to Delivered)
 - Modify: `pyproject.toml` (`0.16.0`), `uv.lock` (`uv lock`), `backend/researchpilot/config.py` (`ResearchPilot/0.16`, both occurrences)
 
 - [ ] **Step 1: Requirements edits** (exact replacements in `docs/requirements.md`)
@@ -798,20 +798,20 @@ git commit -m "Add the search query editor and relabel the research description"
   "The research description itself is not sent to scholarly providers. The user can enable, disable, edit, add, and delete queries; queries the user wrote or edited are never replaced by regeneration. If query generation fails, the project's keywords (or, without keywords, the project name) are used as queries."
 - §38 step 2: change "User enters:" to "User enters a research description:".
 
-- [ ] **Step 2: Phase note** (`docs/phase-16.md`, in the short prose style of `docs/phase-15.md`)
+- [ ] **Step 2: Feature note** (`docs/features/description-driven-queries.md`, in the short prose style of `docs/features/semantic-relevance.md`)
 
 Cover these points:
-- **Why:** the live IaC run, where a long conversational topic sent verbatim to keyword search let Phase 15 filter 55 of 90 unique papers.
+- **Why:** the live IaC run, where a long conversational topic sent verbatim to keyword search let semantic relevance filter 55 of 90 unique papers.
 - **Query rules:** 3–6 queries of at most 8 words, with the keyword → title fallback.
 - **The saved list:** a `userAdded` flag via migration 013, with the rules for regenerate and edit.
 - **Search rejection:** a search with no enabled query is rejected with 422 `NO_ENABLED_QUERIES` and no run.
 - **API change:** `PATCH /queries/{id}` moves from `?enabled=` to a JSON body.
-- **Unchanged:** Phase 15 relevance still uses the description plus keywords.
+- **Unchanged:** semantic relevance still uses the description plus keywords.
 - **Live check:** the measured before/after numbers from Step 5.
 
 - [ ] **Step 3: README and roadmap**
 
-In the README "Current behavior" section, replace the sentence "The saved research question is always searched, and the LLM may add up to five grounded related queries." with "The research description is never searched directly. The LLM turns it and the keywords into 3–6 short keyword queries; if that fails, keywords (or the project name) are used." Update the `/queries` API bullet to list: GET the saved list, POST to regenerate suggestions (keeps user queries), POST `/custom` to add, PATCH `/{queryId}` with a JSON `query` and/or `enabled`, DELETE `/{queryId}`. Add roadmap row `| 16 | Description-driven short search queries with a user-editable query list |` and change the follow-up section to reference Phase 17.
+In the README "Current behavior" section, replace the sentence "The saved research question is always searched, and the LLM may add up to five grounded related queries." with "The research description is never searched directly. The LLM turns it and the keywords into 3–6 short keyword queries; if that fails, keywords (or the project name) are used." Update the `/queries` API bullet to list: GET the saved list, POST to regenerate suggestions (keeps user queries), POST `/custom` to add, PATCH `/{queryId}` with a JSON `query` and/or `enabled`, DELETE `/{queryId}`. In `docs/roadmap.md`, move the "Description-driven queries" row from Planned to the Delivered "Projects and retrieval" table, and link it to `features/description-driven-queries.md`.
 
 - [ ] **Step 4: Version**
 
@@ -830,15 +830,15 @@ uv run --env-file ../ResearchPilot/.env python scripts/migrate.py
 uv run --env-file ../ResearchPilot/.env uvicorn researchpilot.api:app --host 127.0.0.1 --port 8001 --app-dir backend   # background
 ```
 
-Create a project titled "IaC (Phase 16 check)" with the same description, keywords `["IaC"]`, and the same year range and paper limit as "IaC (Phase 15 check)". Run a search, then record the generated queries, `totalFound`, the unique count (`paperCount + filteredCount`), `filteredCount`, `paperCount`, the top 10 titles with scores, and the subtopic names. Compare against Phase 15: 90 unique, 55 filtered, 35 kept. Put the numbers in `docs/phase-16.md`.
+Create a project titled "IaC (description-driven queries check)" with the same description, keywords `["IaC"]`, and the same year range and paper limit as "IaC (Phase 15 check)" (the semantic-relevance run). Run a search, then record the generated queries, `totalFound`, the unique count (`paperCount + filteredCount`), `filteredCount`, `paperCount`, the top 10 titles with scores, and the subtopic names. Compare against Phase 15: 90 unique, 55 filtered, 35 kept. Put the numbers in `docs/phase-16.md`.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add docs/requirements.md docs/phase-16.md README.md docs/roadmap.md pyproject.toml uv.lock backend/researchpilot/config.py
-git commit -m "Document Phase 16 description-driven queries and bump version to 0.16.0"
+git add docs/requirements.md docs/features/description-driven-queries.md README.md docs/roadmap.md pyproject.toml uv.lock backend/researchpilot/config.py
+git commit -m "Document description-driven queries and bump version to 0.16.0"
 ```
 
 - [ ] **Step 7: Hand back**
 
-Report the live comparison to the user. Merging `phase-16` into `main` and pushing wait for the user's go-ahead.
+Report the live comparison to the user. Merging `feat/description-driven-queries` into `main` and pushing wait for the user's go-ahead.

@@ -1,4 +1,6 @@
-# Phase 15 implementation
+# Semantic relevance
+
+*Formerly Phase 15.*
 
 Relevance is now scored semantically, as requirements §8 prefers. The research question and
 its keywords are embedded in the same batch as the papers that need new vectors, so every

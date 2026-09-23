@@ -1,6 +1,6 @@
 # ResearchPilot
 
-Phases 1–9: manage research projects, retrieve real scholarly papers from OpenAlex,
+Manage research projects, retrieve real scholarly papers from OpenAlex,
 deduplicate them, score relevance by embedding similarity to the research question,
 cluster them into groups, have an LLM name each cluster and explain why a paper belongs in
 it, browse the result as a research map with staged search progress and a
@@ -143,6 +143,5 @@ HTTPX mock transports; no paid provider calls are required.
 The current MVP covers query expansion and selection, relevance filtering, manual
 subtopic management, card-level explanations, and settings/navigation. Remaining
 follow-up work is the requirements' end-to-end acceptance scenario and broader logging
-coverage. See the [roadmap](docs/roadmap.md). Historical phase
-notes describe their phase at implementation time; this README describes current
-behavior.
+coverage. See the [roadmap](docs/roadmap.md). Notes in `docs/features/` describe each
+feature at the time it shipped; this README describes current behavior.

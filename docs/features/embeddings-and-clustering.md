@@ -1,4 +1,6 @@
-# Phase 4 implementation
+# Embeddings and clustering
+
+*Formerly Phase 4.*
 
 This document describes implemented behavior without changing the roadmap scope.
 

@@ -1,4 +1,6 @@
-# Phase 5 implementation
+# Cluster naming
+
+*Formerly Phase 5.*
 
 This document describes implemented behavior without changing the roadmap scope.
 

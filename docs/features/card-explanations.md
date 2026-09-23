@@ -1,4 +1,6 @@
-# Phase 13 implementation
+# Explanations on paper cards
+
+*Formerly Phase 13.*
 
 Categorized paper cards now expose an inline, on-demand classification explanation.
 The card uses the existing cached explanation when available, supports loading and

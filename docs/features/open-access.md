@@ -1,4 +1,6 @@
-# Phase 9 implementation
+# Open-access status and links
+
+*Formerly Phase 9.*
 
 This document describes implemented behavior without changing the roadmap scope.
 

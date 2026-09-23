@@ -1,15 +1,15 @@
-# Description-driven search queries (Phase 16)
+# Description-driven search queries
 
 Date: 2026-09-23 · Status: approved design, awaiting spec review
 
 ## Problem
 
-The project's "Research question or topic" is sent to OpenAlex verbatim, and Phase 10 makes
+The project's "Research question or topic" is sent to OpenAlex verbatim, and query expansion makes
 that mandatory in every search. OpenAlex search matches keywords, so a long conversational
 topic retrieves poorly. A live run with *"Infrastructure as Code — from manual console work
 to declarative provisioning, and where generative AI fits in"* returned 90 unique papers, of
-which Phase 15 filtered 55 as off-topic, including stormwater "infrastructure" and "generative
-AI in education" papers. Phase 15 can filter bad papers, but it cannot recover good papers
+which semantic relevance filtered 55 as off-topic, including stormwater "infrastructure" and "generative
+AI in education" papers. Semantic relevance can filter bad papers, but it cannot recover good papers
 that retrieval never returned.
 
 ## Decision
@@ -23,7 +23,7 @@ them, and the user can review, toggle, edit, and add to them.
 | Field (API name) | UI label | Role |
 |---|---|---|
 | `title` | Project name | Short label. Also the last-resort fallback query. |
-| `researchQuestion` | Research description | Required, up to 5000 characters. Used for query generation, the relevance anchor (Phase 15, unchanged), cluster naming, and explanations. **Never sent to OpenAlex.** |
+| `researchQuestion` | Research description | Required, up to 5000 characters. Used for query generation, the relevance anchor (semantic relevance, unchanged), cluster naming, and explanations. **Never sent to OpenAlex.** |
 | `keywords` | Keywords (optional) | Steer query generation and the relevance anchor. They are the fallback queries. |
 
 The API and database name `researchQuestion` stays, which avoids a migration and a breaking
@@ -75,14 +75,14 @@ The saved list is the only source of search queries.
   uses them. This matches today's behavior.
 - With saved queries but **none enabled**, the search is rejected with 422 and code
   `NO_ENABLED_QUERIES` before any provider call. Nothing is recorded as a failed run. The
-  UI disables "Search literature" and says "Enable at least one search query."
+  UI disables "Find papers" and says "Enable at least one search query."
 - Otherwise, the enabled queries in saved order are used. Retrieval divides `maxPaperCount`
   across them, as today.
 - The run's `generatedQueries` snapshot holds exactly the queries sent. The search panel
   already lists them, which covers §16 transparency.
 - `parameters.query` in the run snapshot still records the description, as the project
   context the search ran under. The UI label for it becomes "Description".
-- The rest is unchanged: deduplication, Phase 15 relevance (description + keywords), the 40%
+- The rest is unchanged: deduplication, semantic relevance (description + keywords), the 40%
   filter, clustering, naming, and explanations.
 
 ## 5. Storage
@@ -101,7 +101,7 @@ added to `SearchQueryRow`, and the `SearchQuery` API model gains `userAdded`.
   - deletes user queries
   - has an "Add query" input
   - keeps the existing "Regenerate suggestions" button, which now keeps user queries
-- "Search literature" is disabled when no query is enabled, with the message above.
+- "Find papers" is disabled when no query is enabled, with the message above.
 
 ## 7. Requirements and docs
 
@@ -113,8 +113,8 @@ added to `SearchQueryRow`, and the `SearchQuery` API model gains `userAdded`.
   - §7: the description is not searched verbatim; users can enable, disable, edit, and add
     queries. This replaces "eventually".
   - §38 step 2: "User enters a research description".
-- Add `docs/phase-16.md`, update the README "Current behavior" section, and add roadmap row
-  16. The §38 acceptance test and logging audit move to Phase 17.
+- Add `docs/features/description-driven-queries.md`, update the README "Current behavior"
+  section, and move the roadmap entry from Planned to Delivered (Projects and retrieval).
 - The report can use this as a validation-driven specification change (§3.3, §7.2).
 
 ## 8. Testing
@@ -133,7 +133,7 @@ added to `SearchQueryRow`, and the `SearchQuery` API model gains `userAdded`.
   disabled search button when no query is enabled.
 - **Migration:** the PostgreSQL suite applies 013.
 - **Live check:** rerun the IaC description and compare how many papers are retrieved and
-  how many Phase 15 keeps, against the Phase 15 run (90 unique, 35 kept).
+  how many semantic relevance keeps, against the earlier semantic-relevance run (90 unique, 35 kept).
 
 ## Out of scope
 

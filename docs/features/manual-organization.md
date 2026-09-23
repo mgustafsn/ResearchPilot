@@ -1,4 +1,6 @@
-# Phase 8 implementation
+# Manual organization
+
+*Formerly Phase 8.*
 
 This document describes implemented behavior without changing the roadmap scope.
 

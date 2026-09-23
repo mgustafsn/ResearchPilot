@@ -1,4 +1,6 @@
-# Phase 7 implementation
+# Classification explanations
+
+*Formerly Phase 7.*
 
 This document describes implemented behavior without changing the roadmap scope.
 

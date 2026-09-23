@@ -1,4 +1,6 @@
-# Phase 2 implementation
+# OpenAlex retrieval
+
+*Formerly Phase 2.*
 
 This document describes implemented behavior without changing the roadmap scope.
 
