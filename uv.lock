@@ -495,7 +495,7 @@ wheels = [
 
 [[package]]
 name = "researchpilot"
-version = "0.9.0"
+version = "0.14.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },

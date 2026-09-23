@@ -8,3 +8,6 @@ build/
 dist/
 .env
 *.db
+
+# Course material, not project source
+SWCON2627_*.pdf
