@@ -318,7 +318,7 @@ class SearchService:
         return expansion.queries or fallback
 
     async def _retrieve(self, run, queries):
-        """Retrieve every query; keep survivors, fail only when every query failed."""
+        """Retrieve every query; keep survivors, fail when no papers survived a failure."""
         per_query = max(1, (run.parameters.maxPaperCount + len(queries) - 1) // len(queries))
         parameters = [
             run.parameters.model_copy(update={"query": query, "maxPaperCount": per_query})
@@ -338,7 +338,9 @@ class SearchService:
                 raise outcome
             else:
                 results.append(outcome)
-        if not results:
+        # Every query failed, or some failed and the survivors found nothing: fail the
+        # run and keep the project's previous results rather than completing empty.
+        if failed and sum(len(result.papers) for result in results) == 0:
             raise first_error
         return (
             SearchResult(

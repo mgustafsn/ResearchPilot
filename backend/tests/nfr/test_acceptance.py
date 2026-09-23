@@ -75,9 +75,6 @@ def test_acc_38_mvp_scenario(tmp_path):
         page.get_by_role("button", name="Find papers", exact=True).click()
         expect(page.locator(".generated-queries li")).to_have_count(2, timeout=15_000)
         expect(page.locator(".generated-queries")).to_contain_text("llm code generation")
-        # Step 4: a scholarly API (the fake PaperProvider standing in for the real one) is
-        # queried once per generated query.
-        assert len(provider.calls) == 2
         # Steps 5-8: several dozen papers are retrieved, duplicates are removed, papers
         # receive relevance scores, and irrelevant papers are filtered before clustering.
         expect(
@@ -88,6 +85,10 @@ def test_acc_38_mvp_scenario(tmp_path):
         ).to_be_visible()
         rows = page.locator(".paper-row")
         expect(rows).to_have_count(40)  # 40 on-topic survivors: >= "several dozen" (>= 36)
+        # Step 4: a scholarly API (the fake PaperProvider standing in for the real one) is
+        # queried once per generated query. Checked once the row count has settled so it
+        # can't race the polling render.
+        assert len(provider.calls) == 2
         expect(rows.first).to_contain_text(re.compile(r"Relevance: \d+%"))
 
         # Steps 9-11: remaining papers are clustered by embeddings, the LLM names each

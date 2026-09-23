@@ -16,10 +16,11 @@ def live_browser(app, viewport=None):
     server = uvicorn.Server(uvicorn.Config(app, log_level="error"))
     thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
     thread.start()
-    for _ in range(100):
+    for _ in range(250):
         if server.started:
             break
         time.sleep(0.02)
+    assert server.started, "uvicorn did not start"
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()

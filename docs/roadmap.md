@@ -55,7 +55,7 @@ required before sign-off.
 
 | Feature | What it does | Note |
 | --- | --- | --- |
-| Non-functional requirements | Measurable NFRs enforced in CI and the §38 acceptance test | [non-functional-requirements](features/non-functional-requirements.md) |
+| Non-functional requirements and acceptance test | Measurable NFRs enforced in CI and the §38 acceptance test | [non-functional-requirements](features/non-functional-requirements.md) |
 
 ## Planned
 

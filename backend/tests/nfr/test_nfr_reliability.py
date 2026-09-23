@@ -7,7 +7,7 @@ import pytest
 
 from fakes import grouped_papers
 from researchpilot import search as search_module
-from researchpilot.papers import ProviderError
+from researchpilot.papers import ProviderError, SearchResult
 
 pytestmark = pytest.mark.nfr
 
@@ -129,6 +129,55 @@ def test_nfr_rel_3_all_queries_failing_fails_with_first_code(search_client_named
     provider.error = ProviderError("RATE_LIMITED")
     response = client.post(url + "/search")
     assert (response.status_code, response.json()["code"]) == (503, "RATE_LIMITED")
+
+
+def _empty_query(provider, query):
+    original = provider.search
+
+    async def search(parameters):
+        if parameters.query == query:
+            provider.calls.append(parameters)
+            return SearchResult(papers=[], totalFound=0)
+        return await original(parameters)
+
+    provider.search = search
+
+
+def test_nfr_rel_3_partial_failure_with_no_surviving_papers_keeps_results(search_client_named):
+    client, provider, _, llm, url = search_client_named
+    provider.papers = grouped_papers()
+    first = client.post(url + "/search").json()
+    assert first["status"] == "COMPLETED" and first["paperCount"] == 15
+    papers = client.get(url + "/papers").json()
+    subtopics = client.get(url + "/subtopics").json()
+
+    llm.expansion = ["good query", "bad query"]
+    assert {q["query"] for q in client.post(url + "/queries").json()} == {"good query", "bad query"}
+    _empty_query(provider, "good query")
+    _fail_query(provider, "bad query", "RATE_LIMITED")
+    response = client.post(url + "/search?force=true")
+    assert (response.status_code, response.json()["code"]) == (503, "RATE_LIMITED")
+    assert client.get(url + "/papers").json() == papers
+    assert client.get(url + "/subtopics").json() == subtopics
+
+
+def test_nfr_rel_3_non_provider_errors_still_propagate(search_client_named):
+    client, provider, _, llm, url = search_client_named
+    llm.expansion = ["first query", "second query"]
+    original = provider.search
+
+    async def search(parameters):
+        if parameters.query == "first query":
+            provider.calls.append(parameters)
+            raise ProviderError("RATE_LIMITED")
+        if parameters.query == "second query":
+            provider.calls.append(parameters)
+            raise RuntimeError("boom")
+        return await original(parameters)
+
+    provider.search = search
+    response = client.post(url + "/search")
+    assert (response.status_code, response.json()["code"]) == (502, "INTERNAL")
 
 
 async def _hang(*args, **kwargs):

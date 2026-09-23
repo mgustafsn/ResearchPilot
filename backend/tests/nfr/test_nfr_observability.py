@@ -29,10 +29,15 @@ REQUIRED_EVENTS = {
 
 def test_nfr_obs_1_search_logs_every_required_event(real_adapter_app, caplog):
     caplog.set_level(logging.INFO)
-    assert real_adapter_app.client.post(real_adapter_app.url + "/search").status_code == 200
+    response = real_adapter_app.client.post(real_adapter_app.url + "/search")
+    assert response.status_code == 200
+    run = response.json()
     logged = "\n".join(r.getMessage() for r in caplog.records)
     missing = [name for name, pattern in REQUIRED_EVENTS.items() if not re.search(pattern, logged)]
     assert not missing, f"§29 events not logged: {missing}"
+    # Each provider request is logged: at least one "page=" record per generated query.
+    page_requests = len(re.findall(r"OpenAlex request page=\d+", logged))
+    assert page_requests >= len(run["generatedQueries"])
 
 
 def test_nfr_obs_2_failures_log_codes_not_payloads(real_adapter_app, caplog, monkeypatch):

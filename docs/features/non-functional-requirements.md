@@ -38,7 +38,10 @@ test first:
   §28 ("a failure in one provider should not necessarily fail the entire research search").
   `_retrieve` now gathers with `return_exceptions=True`, keeps the results of the queries
   that succeeded, and logs each failure's error code, never the query text. It raises only
-  when every query fails, with the first failure's code. Migration 015 adds
+  when every query fails, with the first failure's code. It also raises that first failure's
+  code, keeping the project's previous results, when at least one query fails and the
+  surviving queries together found zero papers, rather than completing with an empty result.
+  Migration 015 adds
   `search_runs."failedQueries"` (`JSONB NOT NULL DEFAULT '[]'`) so the run records which
   queries failed, and the search panel shows "N of M queries failed; results come from the
   rest." when that list is non-empty.

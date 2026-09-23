@@ -843,7 +843,7 @@ published in the CI `test-report` artifact.
 
 | ID | Requirement | Target | CI ceiling | Test |
 |---|---|---|---|---|
-| NFR-PERF-1 | The research map for a 250-paper project loads, with all 250 paper rows visible, from navigation start | ≤ 1.5 s | 4.5 s | `test_nfr_perf_1_map_renders_250_papers` |
+| NFR-PERF-1 | The research map for a 250-paper project (fixture: 252 papers, 6 × 42) loads, with all 250 paper rows visible, from navigation start | ≤ 1.5 s | 4.5 s | `test_nfr_perf_1_map_renders_250_papers` |
 | NFR-PERF-2 | On that map, selecting a subtopic tab and toggling "Open access only" each re-render | ≤ 0.3 s | 0.9 s | `test_nfr_perf_2_tab_and_filter_rerender` |
 | NFR-PERF-3 | Backend analysis of 250 papers (deduplication, lexical ranking, semantic ranking, filtering, clustering) with precomputed 512-dimension vectors | ≤ 1.0 s | 3.0 s | `test_nfr_perf_3_backend_analysis_of_250_papers` |
 | NFR-PERF-4 | `GET` papers, subtopics, searches and queries for a 250-paper project, p95 over 20 calls each | ≤ 0.2 s | 0.6 s | `test_nfr_perf_4_read_endpoints_p95` |

@@ -6,15 +6,15 @@ import pytest
 from playwright.sync_api import expect
 from sqlalchemy import create_engine
 
-from nfr_support import OPENAI_KEY, OPENALEX_KEY
 from fakes import (
     WORK,
-    grouped_papers,
     RecordingEmbeddingProvider,
     RecordingLlmProvider,
     RecordingProvider,
+    grouped_papers,
 )
 from live import live_browser
+from nfr_support import OPENAI_KEY, OPENALEX_KEY
 from researchpilot.api import create_app
 from researchpilot.persistence import Base
 from researchpilot.providers.openalex import normalize_work
