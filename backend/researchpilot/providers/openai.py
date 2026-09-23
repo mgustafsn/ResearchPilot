@@ -5,9 +5,9 @@ import httpx
 from pydantic import ValidationError
 
 from ..config import openai_base_url
-from ..llm import ClusterNaming, PaperBrief, PaperExplanation
+from ..llm import ClusterNaming, PaperBrief, PaperExplanation, QueryExpansion
 from ..papers import ProviderError
-from ..prompts import cluster_naming_messages, paper_explanation_messages
+from ..prompts import cluster_naming_messages, paper_explanation_messages, query_expansion_messages
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +31,12 @@ _EXPLANATION_SCHEMA = {
     "type": "object",
     "properties": {"explanation": {"type": "string"}},
     "required": ["explanation"],
+    "additionalProperties": False,
+}
+_QUERY_SCHEMA = {
+    "type": "object",
+    "properties": {"queries": {"type": "array", "items": {"type": "string"}}},
+    "required": ["queries"],
     "additionalProperties": False,
 }
 
@@ -96,10 +102,20 @@ class OpenAILlmProvider:
             if response.status_code != 200:
                 raise ProviderError("LLM_UNAVAILABLE")
             payload = response.json()
+        except httpx.TimeoutException:
+            raise ProviderError("TIMEOUT") from None
         except httpx.HTTPError:
             raise ProviderError("LLM_UNAVAILABLE") from None
         except ValueError:
             raise ProviderError("LLM_INVALID_RESPONSE") from None
+        usage = payload.get("usage") if isinstance(payload, dict) else None
+        if isinstance(usage, dict):
+            logger.info(
+                "OpenAI completion usage prompt_tokens=%s completion_tokens=%s total_tokens=%s",
+                usage.get("prompt_tokens"),
+                usage.get("completion_tokens"),
+                usage.get("total_tokens"),
+            )
         try:
             return json.loads(payload["choices"][0]["message"]["content"])
         except (KeyError, IndexError, TypeError, ValueError):
@@ -112,6 +128,16 @@ class OpenAILlmProvider:
         )
         try:
             return ClusterNaming.model_validate(parsed)
+        except ValidationError:
+            raise ProviderError("LLM_INVALID_RESPONSE") from None
+
+    async def expand_queries(self, question: str, keywords: list[str]) -> QueryExpansion:
+        logger.info("OpenAI query expansion")
+        parsed = await self._completion(
+            "query_expansion", _QUERY_SCHEMA, query_expansion_messages(question, keywords)
+        )
+        try:
+            return QueryExpansion.model_validate(parsed)
         except ValidationError:
             raise ProviderError("LLM_INVALID_RESPONSE") from None
 

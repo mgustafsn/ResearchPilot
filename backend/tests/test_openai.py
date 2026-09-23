@@ -146,6 +146,14 @@ def name_cluster(handler, question="How are LLMs used in software engineering?",
     return asyncio.run(run())
 
 
+def expand_queries(handler, question="How are LLMs used in software engineering?"):
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await OpenAILlmProvider(client).expand_queries(question, ["testing"])
+
+    return asyncio.run(run())
+
+
 def _completion(obj):
     return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(obj)}}]})
 
@@ -170,6 +178,19 @@ def test_names_a_cluster_with_structured_output():
     assert result.name == "LLMs for Software Testing"
     assert result.description.startswith("Papers on using language models")
     assert result.keywords == ["testing", "test generation", "llm"]
+
+
+def test_expands_queries_with_structured_output():
+    def handler(request):
+        body = json.loads(request.content)
+        assert body["response_format"]["json_schema"]["name"] == "query_expansion"
+        assert "testing" in body["messages"][-1]["content"]
+        return _completion(
+            {"queries": ["LLM automated testing", "generative AI software engineering"]}
+        )
+
+    result = expand_queries(handler)
+    assert result.queries == ["LLM automated testing", "generative AI software engineering"]
 
 
 def test_output_is_trimmed_and_deduped():
@@ -227,13 +248,13 @@ def test_malformed_llm_response_is_rejected(response):
     assert error.value.code == "LLM_INVALID_RESPONSE"
 
 
-def test_llm_timeout_maps_to_unavailable():
+def test_llm_timeout_is_distinct():
     def handler(request):
         raise httpx.ReadTimeout("secret URL")
 
     with pytest.raises(ProviderError) as error:
         name_cluster(handler)
-    assert error.value.code == "LLM_UNAVAILABLE"
+    assert error.value.code == "TIMEOUT"
 
 
 def explain_paper(handler, question="How are LLMs used in software engineering?"):

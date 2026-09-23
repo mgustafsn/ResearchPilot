@@ -1,6 +1,12 @@
 from uuid import uuid4
 
-from researchpilot.analysis import deduplicate, normalize_doi, normalize_title, rank_papers
+from researchpilot.analysis import (
+    deduplicate,
+    filter_relevant,
+    normalize_doi,
+    normalize_title,
+    rank_papers,
+)
 from researchpilot.papers import Paper
 
 
@@ -115,6 +121,12 @@ def test_keywords_influence_relevance_and_scores_are_repeatable():
     assert first[0].paper.id == testing.id
     assert first[0].relevance_score > first[1].relevance_score
     assert all(0 <= item.relevance_score <= 1 for item in first)
+
+
+def test_filter_relevant_removes_low_scoring_papers():
+    papers = [paper("large language models"), paper("marine biology")]
+    ranked = rank_papers(papers, "large language models", [])
+    assert [item.paper.title for item in filter_relevant(ranked)] == ["large language models"]
 
 
 def test_ties_have_stable_metadata_ordering():

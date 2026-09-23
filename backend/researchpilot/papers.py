@@ -78,6 +78,14 @@ class SearchParameters(BaseModel):
     maxPaperCount: int = 100
 
 
+class SearchQuery(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    projectId: UUID
+    query: str
+    enabled: bool = True
+
+
 class SearchResult(BaseModel):
     papers: list[Paper]
     totalFound: int
@@ -90,6 +98,7 @@ class SearchRun(BaseModel):
     projectId: UUID
     provider: str
     parameters: SearchParameters
+    generatedQueries: list[str] = Field(default_factory=list)
     researchQuestion: str
     keywords: list[str]
     status: Literal["SEARCHING", "COMPLETED", "FAILED"]
@@ -100,6 +109,7 @@ class SearchRun(BaseModel):
     paperCount: int = 0
     skippedCount: int = 0
     duplicateCount: int = 0
+    filteredCount: int = 0
     clusterCount: int = 0
     namingError: str | None = None
     errorCode: str | None = None
@@ -120,6 +130,7 @@ class ProviderError(Exception):
         "RATE_LIMITED": "The scholarly provider is rate limited. Please try again later.",
         "AUTHENTICATION": "The scholarly provider rejected authentication. Check the server API key.",
         "UNAVAILABLE": "The scholarly provider is unavailable. Please try again later.",
+        "EXPLANATION_TIMEOUT": "The explanation timed out. Retry to request it again.",
         "TIMEOUT": "The scholarly search timed out. Try a smaller paper limit.",
         "INVALID_RESPONSE": "The scholarly provider returned an invalid response. Please try again.",
         "QUERY_REJECTED": "The scholarly provider rejected this query. Try a shorter research topic.",

@@ -2,6 +2,9 @@
 
 import asyncio
 import logging
+import hashlib
+import json
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
@@ -9,11 +12,18 @@ from uuid import UUID, uuid4
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 
-from .analysis import RankedPaper, deduplicate, rank_papers
+from .analysis import RankedPaper, deduplicate, filter_relevant, rank_papers
 from .clustering import cluster_papers
 from .embeddings import EmbeddingProvider
 from .llm import ClusterNaming, LlmProvider, PaperBrief
-from .papers import Paper, PaperProvider, ProviderError, SearchParameters, SearchRun
+from .papers import (
+    Paper,
+    PaperProvider,
+    ProviderError,
+    SearchParameters,
+    SearchResult,
+    SearchRun,
+)
 from .persistence import ProjectRepository
 from .search_persistence import (
     ExplanationUnavailable,
@@ -39,8 +49,12 @@ class CompletedSearch:
     total_found: int
     skipped_count: int
     duplicate_count: int
-    fresh_vectors: dict[UUID, list[float]]
+    filtered_count: int
+    vectors: dict[UUID, list[float]]
     model: str
+    hashes: dict[UUID, str]
+    provider: str
+    dimension: int
     clusters: dict[UUID, int | None]
     cluster_count: int
     subtopics: dict[int, ClusterNaming]
@@ -49,7 +63,7 @@ class CompletedSearch:
 
 def _embedding_text(paper: Paper) -> str:
     text = " ".join(filter(None, [paper.title, paper.abstract])).strip()
-    return text or "untitled paper"
+    return " ".join(text.split()) or "untitled paper"
 
 
 class SearchService:
@@ -100,6 +114,7 @@ class SearchService:
                 paperCount=0,
                 skippedCount=0,
                 duplicateCount=0,
+                filteredCount=0,
                 clusterCount=0,
                 stage="RETRIEVING",
             )
@@ -108,9 +123,39 @@ class SearchService:
             session.flush()
             return SearchRun.model_validate(run)
 
-    def _existing_embeddings(self, paper_ids, model):
+    def _existing_embeddings(self, hashes, model, provider, dimension):
         with Session(self.engine) as session:
-            return SearchRepository(session).existing_embeddings(paper_ids, model)
+            return SearchRepository(session).existing_embeddings(hashes, model, provider, dimension)
+
+    def _selected_queries(self, project_id, question):
+        with Session(self.engine) as session:
+            saved = SearchRepository(session).queries(project_id)
+        if not saved:
+            return None
+        return [question, *(item.query for item in saved if item.enabled)]
+
+    async def expand_project_queries(self, project_id):
+        with Session(self.engine) as session:
+            project = self._editable(session, project_id)
+            question, keywords = project.researchQuestion, project.keywords
+        expansion = await self._expand_text(question, keywords)
+        with Session(self.engine) as session, session.begin():
+            self._editable(session, project_id)
+            SearchRepository(session).replace_queries(project_id, expansion[1:])
+            return SearchRepository(session).queries(project_id)
+
+    def project_queries(self, project_id):
+        with Session(self.engine) as session:
+            self._project(session, project_id)
+            return SearchRepository(session).queries(project_id)
+
+    def set_query_enabled(self, project_id, query_id, enabled):
+        with Session(self.engine) as session, session.begin():
+            self._editable(session, project_id)
+            updated = SearchRepository(session).set_query_enabled(project_id, query_id, enabled)
+            if updated is None:
+                raise ProjectNotFound()
+            return updated
 
     def _set_stage(self, run_id, stage):
         """Record pipeline progress for a running search; a no-op once superseded."""
@@ -123,12 +168,28 @@ class SearchService:
 
     async def _prepare(self, run, result) -> CompletedSearch:
         """Deduplicate, rank, embed the newcomers, and cluster — all outside a transaction."""
+        analysis_started = time.perf_counter()
         await asyncio.to_thread(self._set_stage, run.id, "ANALYZING")
         deduplicated, duplicate_count = deduplicate(result.papers)
-        ranked = rank_papers(deduplicated, run.researchQuestion, run.keywords)
+        ranked_all = rank_papers(deduplicated, run.researchQuestion, run.keywords)
+        ranked = filter_relevant(ranked_all)
+        logger.info(
+            "Search analyzed run=%s retrieved=%s unique=%s filtered=%s duration_ms=%s",
+            run.id,
+            len(result.papers),
+            len(ranked_all),
+            len(ranked_all) - len(ranked),
+            round((time.perf_counter() - analysis_started) * 1000),
+        )
         model = self.embedding_provider.model
+        provider = self.embedding_provider.name
+        dimension = self.embedding_provider.dimension
+        hashes = {
+            item.paper.id: hashlib.sha256(_embedding_text(item.paper).encode()).hexdigest()
+            for item in ranked
+        }
         existing = await asyncio.to_thread(
-            self._existing_embeddings, [item.paper.id for item in ranked], model
+            self._existing_embeddings, hashes, model, provider, dimension
         )
         missing = [item for item in ranked if item.paper.id not in existing]
         fresh_vectors: dict[UUID, list[float]] = {}
@@ -144,7 +205,13 @@ class SearchService:
         by_id = {**existing, **fresh_vectors}
         ordered = [by_id[item.paper.id] for item in ranked]
         await asyncio.to_thread(self._set_stage, run.id, "CLUSTERING")
+        clustering_started = time.perf_counter()
         labels = await asyncio.to_thread(cluster_papers, ordered) if ordered else []
+        logger.info(
+            "Search clustering run=%s duration_ms=%s",
+            run.id,
+            round((time.perf_counter() - clustering_started) * 1000),
+        )
         clusters = {item.paper.id: label for item, label in zip(ranked, labels, strict=True)}
         cluster_count = len({label for label in labels if label is not None})
         if cluster_count >= 2:
@@ -155,12 +222,57 @@ class SearchService:
             total_found=result.totalFound,
             skipped_count=result.skippedCount,
             duplicate_count=duplicate_count,
-            fresh_vectors=fresh_vectors,
+            filtered_count=len(ranked_all) - len(ranked),
+            vectors=by_id,
+            hashes=hashes,
+            provider=provider,
+            dimension=dimension,
             model=model,
             clusters=clusters,
             cluster_count=cluster_count,
             subtopics=subtopics,
             naming_error=naming_error,
+        )
+
+    async def _expand_queries(self, run):
+        selected = await asyncio.to_thread(
+            self._selected_queries, run.projectId, run.researchQuestion
+        )
+        if selected is not None:
+            logger.info("Search using saved queries run=%s selected=%s", run.id, len(selected))
+            return selected
+        expanded = await self._expand_text(run.researchQuestion, run.keywords)
+        logger.info("Search generated queries run=%s selected=%s", run.id, len(expanded))
+        return expanded
+
+    async def _expand_text(self, question, keywords):
+        expand = getattr(self.llm_provider, "expand_queries", None)
+        if expand is None:
+            return [question]
+        try:
+            expansion = await asyncio.wait_for(expand(question, keywords), NAMING_TIMEOUT_SECONDS)
+        except (TimeoutError, ProviderError, TypeError, AttributeError):
+            logger.warning("Query expansion unavailable; using original query")
+            return [question]
+        queries = [question, *expansion.queries]
+        seen = set()
+        return [
+            query
+            for query in queries
+            if not (query.casefold() in seen or seen.add(query.casefold()))
+        ]
+
+    async def _retrieve(self, run, queries):
+        per_query = max(1, (run.parameters.maxPaperCount + len(queries) - 1) // len(queries))
+        parameters = [
+            run.parameters.model_copy(update={"query": query, "maxPaperCount": per_query})
+            for query in queries
+        ]
+        results = await asyncio.gather(*(self.provider.search(item) for item in parameters))
+        return SearchResult(
+            papers=[paper for result in results for paper in result.papers],
+            totalFound=sum(result.totalFound for result in results),
+            skippedCount=sum(result.skippedCount for result in results),
         )
 
     async def _name_clusters(self, run, ranked, clusters, cluster_count):
@@ -212,14 +324,18 @@ class SearchService:
                     project.id,
                     run.id,
                     completed.ranked,
-                    fresh_vectors=completed.fresh_vectors,
+                    vectors=completed.vectors,
                     model=completed.model,
                     clusters=completed.clusters,
+                    hashes=completed.hashes,
+                    provider=completed.provider,
+                    dimension=completed.dimension,
                 )
                 repository.replace_subtopics(project.id, run.id, completed.subtopics)
                 latest.totalFound = completed.total_found
                 latest.skippedCount = completed.skipped_count
                 latest.duplicateCount = completed.duplicate_count
+                latest.filteredCount = completed.filtered_count
                 latest.clusterCount = completed.cluster_count
                 latest.namingError = completed.naming_error
                 latest.status = "COMPLETED"
@@ -232,13 +348,14 @@ class SearchService:
 
     async def search(self, project_id, force=False):
         run = await asyncio.to_thread(self.start, project_id, force)
+        search_started = time.perf_counter()
         logger.info(
             "Search started project=%s run=%s provider=%s", project_id, run.id, self.provider.name
         )
         try:
-            result = await asyncio.wait_for(
-                self.provider.search(run.parameters), SEARCH_TIMEOUT_SECONDS
-            )
+            queries = await self._expand_queries(run)
+            await asyncio.to_thread(self._set_generated_queries, run.id, queries)
+            result = await asyncio.wait_for(self._retrieve(run, queries), SEARCH_TIMEOUT_SECONDS)
             completed = await self._prepare(run, result)
             finished = await asyncio.to_thread(self.finish, run, completed=completed)
         except (TimeoutError, ProviderError) as exc:
@@ -254,12 +371,17 @@ class SearchService:
             await asyncio.to_thread(self.finish, run, error=ProviderError("INTERNAL"))
             raise ProviderError("INTERNAL") from None
         logger.info(
-            "Search completed run=%s papers=%s clusters=%s",
+            "Search completed run=%s papers=%s clusters=%s duration_ms=%s",
             run.id,
             finished.paperCount,
             finished.clusterCount,
+            round((time.perf_counter() - search_started) * 1000),
         )
         return finished
+
+    def _set_generated_queries(self, run_id, queries):
+        with Session(self.engine) as session, session.begin():
+            SearchRepository(session).set_generated_queries(run_id, queries)
 
     def history(self, project_id):
         with Session(self.engine) as session, session.begin():
@@ -281,19 +403,57 @@ class SearchService:
                 raise ProjectNotFound()
             return SearchRepository(session).subtopics(project_id)
 
+    def _editable(self, session, project_id):
+        project = self._project(session, project_id)
+        run = expire_search(project, SearchRepository(session))
+        if run and run.status == "SEARCHING":
+            raise SearchConflict("Wait for the current search to finish before organizing papers.")
+        return project
+
     def rename_subtopic(self, project_id, cluster_id, patch):
         with Session(self.engine) as session, session.begin():
-            self._project(session, project_id)
+            self._editable(session, project_id)
             renamed = SearchRepository(session).rename_subtopic(
-                project_id, cluster_id, patch.name, patch.description
+                project_id,
+                cluster_id,
+                patch.name,
+                patch.description if "description" in patch.model_fields_set else None,
             )
             if renamed is None:
                 raise ProjectNotFound()
             return renamed
 
+    def create_subtopic(self, project_id, patch):
+        with Session(self.engine) as session, session.begin():
+            self._editable(session, project_id)
+            created = SearchRepository(session).create_subtopic(
+                project_id, patch.name, patch.description
+            )
+            if created is None:
+                raise ProjectNotFound()
+            return created
+
+    def delete_subtopic(self, project_id, cluster_id):
+        with Session(self.engine) as session, session.begin():
+            self._editable(session, project_id)
+            if not SearchRepository(session).delete_subtopic(project_id, cluster_id):
+                raise ProjectNotFound()
+
+    def merge_subtopics(self, project_id, cluster_id, target_cluster_id):
+        if cluster_id == target_cluster_id:
+            raise UnknownCluster("Choose a different destination subtopic.")
+        with Session(self.engine) as session, session.begin():
+            self._editable(session, project_id)
+            merged = SearchRepository(session).merge_subtopics(
+                project_id, cluster_id, target_cluster_id
+            )
+            if merged is None:
+                raise ProjectNotFound()
+            return merged
+
     def update_paper(self, project_id, paper_id, patch):
         with Session(self.engine) as session, session.begin():
-            self._project(session, project_id)
+            self._editable(session, project_id)
             repository = SearchRepository(session)
             changes = patch.model_dump(exclude_unset=True)
             if "clusterId" in changes and changes["clusterId"] is not None:
@@ -304,39 +464,75 @@ class SearchService:
                 raise ProjectNotFound()
             return next(p for p in repository.papers(project_id) if p.id == updated.paperId)
 
+    def _explanation_context(self, session, project_id, paper_id):
+        project = self._project(session, project_id)
+        target = SearchRepository(session).explanation_target(project_id, paper_id)
+        if target is None:
+            raise ProjectNotFound()
+        association, paper, subtopic = target
+        context = [
+            str(association.searchRunId),
+            project.researchQuestion,
+            paper.title,
+            paper.abstract,
+            association.clusterId,
+            subtopic.name if subtopic else None,
+            subtopic.description if subtopic else None,
+        ]
+        fingerprint = hashlib.sha256(json.dumps(context).encode()).hexdigest()
+        return association, paper, subtopic, project, fingerprint
+
     def _explanation_input(self, project_id, paper_id):
-        with Session(self.engine) as session:
-            project = ProjectRepository(session).get(project_id)
-            if project is None:
-                raise ProjectNotFound()
-            target = SearchRepository(session).explanation_target(project_id, paper_id)
-            if target is None:
-                raise ProjectNotFound()
-            project_paper, paper, subtopic = target
-            if project_paper.classificationExplanation:
-                return {"cached": project_paper.classificationExplanation}
+        with Session(self.engine) as session, session.begin():
+            association, paper, subtopic, project, fingerprint = self._explanation_context(
+                session, project_id, paper_id
+            )
             if subtopic is None:
                 raise ExplanationUnavailable("This paper has no named subtopic to explain.")
             return {
-                "cached": None,
+                "cached": association.classificationExplanation
+                if association.explanationContextHash == fingerprint
+                else None,
+                "fingerprint": fingerprint,
                 "question": project.researchQuestion,
                 "subtopic": subtopic.name,
                 "paper": PaperBrief(title=paper.title, abstract=paper.abstract),
             }
 
-    def _store_explanation(self, project_id, paper_id, text):
+    def _store_explanation(self, project_id, paper_id, text, fingerprint):
         with Session(self.engine) as session, session.begin():
-            SearchRepository(session).store_explanation(project_id, paper_id, text)
+            try:
+                association, _, _, _, current = self._explanation_context(
+                    session, project_id, paper_id
+                )
+            except ProjectNotFound:
+                raise SearchConflict("Explanation context changed. Refresh the project.") from None
+            if current != fingerprint:
+                raise SearchConflict("Explanation context changed. Refresh the project.")
+            if (
+                association.explanationContextHash == current
+                and association.classificationExplanation
+            ):
+                return association.classificationExplanation
+            association.classificationExplanation = text
+            association.explanationContextHash = current
+            return text
 
     async def explain(self, project_id, paper_id):
         prepared = await asyncio.to_thread(self._explanation_input, project_id, paper_id)
         if prepared["cached"] is not None:
             return prepared["cached"]
-        text = await asyncio.wait_for(
-            self.llm_provider.explain_paper(
-                prepared["question"], prepared["subtopic"], prepared["paper"]
-            ),
-            NAMING_TIMEOUT_SECONDS,
+        try:
+            text = await asyncio.wait_for(
+                self.llm_provider.explain_paper(
+                    prepared["question"], prepared["subtopic"], prepared["paper"]
+                ),
+                NAMING_TIMEOUT_SECONDS,
+            )
+        except (TimeoutError, ProviderError) as exc:
+            if isinstance(exc, TimeoutError) or exc.code == "TIMEOUT":
+                raise ProviderError("EXPLANATION_TIMEOUT") from None
+            raise
+        return await asyncio.to_thread(
+            self._store_explanation, project_id, paper_id, text, prepared["fingerprint"]
         )
-        await asyncio.to_thread(self._store_explanation, project_id, paper_id, text)
-        return text

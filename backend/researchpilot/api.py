@@ -12,10 +12,17 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from .config import database_url, openai_headers, openalex_headers
-from .domain import PaperPatch, Project, ProjectInput, SubtopicPatch
+from .domain import (
+    PaperPatch,
+    Project,
+    ProjectInput,
+    SubtopicInput,
+    SubtopicMerge,
+    SubtopicPatch,
+)
 from .persistence import ProjectRepository
 from .service import ProjectNotFound, ProjectService
-from .papers import ProjectPaper, ProviderError, SearchRun, Subtopic
+from .papers import ProjectPaper, ProviderError, SearchQuery, SearchRun, Subtopic
 from .providers.openai import OpenAIEmbeddingProvider, OpenAILlmProvider
 from .providers.openalex import OpenAlexProvider
 from .search import SearchService
@@ -114,7 +121,7 @@ def create_app(engine=None, provider=None, embedding_provider=None, llm_provider
     async def provider_error(request, exc):
         status = (
             504
-            if exc.code == "TIMEOUT"
+            if exc.code in {"TIMEOUT", "EXPLANATION_TIMEOUT"}
             else 503
             if exc.code
             in {
@@ -148,6 +155,18 @@ def create_app(engine=None, provider=None, embedding_provider=None, llm_provider
     def project_subtopics(project_id: UUID):
         return app.state.search.subtopics(project_id)
 
+    @app.get("/api/projects/{project_id}/queries", response_model=list[SearchQuery])
+    def project_queries(project_id: UUID):
+        return app.state.search.project_queries(project_id)
+
+    @app.post("/api/projects/{project_id}/queries", response_model=list[SearchQuery])
+    async def expand_project_queries(project_id: UUID):
+        return await app.state.search.expand_project_queries(project_id)
+
+    @app.patch("/api/projects/{project_id}/queries/{query_id}", response_model=SearchQuery)
+    def set_query_enabled(project_id: UUID, query_id: UUID, enabled: bool):
+        return app.state.search.set_query_enabled(project_id, query_id, enabled)
+
     @app.post("/api/projects/{project_id}/papers/{paper_id}/explanation")
     async def paper_explanation(project_id: UUID, paper_id: UUID):
         return {"explanation": await app.state.search.explain(project_id, paper_id)}
@@ -155,6 +174,19 @@ def create_app(engine=None, provider=None, embedding_provider=None, llm_provider
     @app.patch("/api/projects/{project_id}/subtopics/{cluster_id}", response_model=Subtopic)
     def rename_subtopic(project_id: UUID, cluster_id: int, patch: SubtopicPatch):
         return app.state.search.rename_subtopic(project_id, cluster_id, patch)
+
+    @app.post("/api/projects/{project_id}/subtopics", response_model=Subtopic, status_code=201)
+    def create_subtopic(project_id: UUID, patch: SubtopicInput):
+        return app.state.search.create_subtopic(project_id, patch)
+
+    @app.delete("/api/projects/{project_id}/subtopics/{cluster_id}", status_code=204)
+    def delete_subtopic(project_id: UUID, cluster_id: int):
+        app.state.search.delete_subtopic(project_id, cluster_id)
+        return Response(status_code=204)
+
+    @app.post("/api/projects/{project_id}/subtopics/{cluster_id}/merge", response_model=Subtopic)
+    def merge_subtopics(project_id: UUID, cluster_id: int, patch: SubtopicMerge):
+        return app.state.search.merge_subtopics(project_id, cluster_id, patch.targetClusterId)
 
     @app.patch("/api/projects/{project_id}/papers/{paper_id}", response_model=ProjectPaper)
     def update_paper(project_id: UUID, paper_id: UUID, patch: PaperPatch):
@@ -164,6 +196,7 @@ def create_app(engine=None, provider=None, embedding_provider=None, llm_provider
 
     @app.get("/", include_in_schema=False)
     @app.get("/projects/new", include_in_schema=False)
+    @app.get("/settings", include_in_schema=False)
     @app.get("/projects/{project_id}", include_in_schema=False)
     @app.get("/projects/{project_id}/edit", include_in_schema=False)
     def frontend():

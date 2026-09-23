@@ -35,8 +35,13 @@ class ProjectService:
 
     def update(self, project_id, data: ProjectInput):
         row = self._editable(project_id)
+        changed_query_context = (
+            row.researchQuestion != data.researchQuestion or row.keywords != data.keywords
+        )
         for key, value in data.model_dump().items():
             setattr(row, key, value)
+        if changed_query_context:
+            SearchRepository(self.repository.session).clear_queries(project_id)
         row.updatedAt = datetime.now(timezone.utc)
         return Project.model_validate(self.repository.save(row))
 

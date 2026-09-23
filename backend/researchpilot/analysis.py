@@ -114,6 +114,14 @@ class RankedPaper:
     relevance_score: float
 
 
+RELEVANCE_THRESHOLD = 0.10
+
+
+def filter_relevant(ranked: list[RankedPaper], threshold: float = RELEVANCE_THRESHOLD):
+    """Keep papers with enough lexical evidence for the original research question."""
+    return [item for item in ranked if item.relevance_score >= threshold]
+
+
 def rank_papers(papers: list[Paper], question: str, keywords: list[str]) -> list[RankedPaper]:
     """Rank by explainable weighted term coverage; corpus IDF rewards discriminating terms."""
     query_terms = Counter(tokens(question))

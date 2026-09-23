@@ -1,0 +1,1 @@
+ALTER TABLE search_runs ADD COLUMN "filteredCount" INTEGER NOT NULL DEFAULT 0;

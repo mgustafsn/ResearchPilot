@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from researchpilot.api import create_app
-from researchpilot.llm import ClusterNaming
+from researchpilot.llm import ClusterNaming, QueryExpansion
 from researchpilot.papers import ProviderError, SearchResult
 from researchpilot.providers.openalex import normalize_work
 from researchpilot.search_persistence import PaperRow, ProjectPaperRow, SearchRunRow
@@ -74,6 +74,7 @@ class RecordingLlmProvider:
         self.error = None
         self.explain_calls = []
         self.explain_error = None
+        self.expansion = []
 
     async def name_cluster(self, question, papers):
         self.calls.append((question, list(papers)))
@@ -83,6 +84,9 @@ class RecordingLlmProvider:
         return ClusterNaming(
             name=f"Topic {marker}", description=f"Papers about {marker}.", keywords=[marker.lower()]
         )
+
+    async def expand_queries(self, question, keywords):
+        return QueryExpansion(queries=self.expansion)
 
     async def explain_paper(self, question, subtopic, paper):
         self.explain_calls.append((question, subtopic, paper))
@@ -135,6 +139,7 @@ def test_search_persists_real_metadata_and_snapshot(search_client, engine):
     assert run["keywords"] == DATA["keywords"]
     assert run["paperCount"] == 1
     assert run["duplicateCount"] == 0
+    assert run["filteredCount"] == 0
     assert run["clusterCount"] == 1
     assert run["startedAt"] and run["finishedAt"]
     papers = client.get(url + "/papers").json()
@@ -146,6 +151,44 @@ def test_search_persists_real_metadata_and_snapshot(search_client, engine):
     with TestClient(create_app(engine, provider)) as restarted:
         assert restarted.get(url + "/papers").json() == papers
     assert 0 <= papers[0]["relevanceScore"] <= 1
+
+
+def test_query_expansion_is_persisted_and_retrieves_each_query(search_client_named):
+    client, provider, _, llm, url = search_client_named
+    llm.expansion = ["generative AI software development", "large language models"]
+    run = client.post(url + "/search").json()
+    assert run["generatedQueries"] == [
+        DATA["researchQuestion"],
+        "generative AI software development",
+    ]
+    assert [parameters.query for parameters in provider.calls] == [
+        DATA["researchQuestion"],
+        "generative AI software development",
+    ]
+    assert client.get(url + "/searches").json()[0]["generatedQueries"] == run["generatedQueries"]
+
+
+def test_disabled_saved_query_is_not_regenerated_or_retrieved(search_client_named):
+    client, provider, _, llm, url = search_client_named
+    llm.expansion = ["alternate query"]
+    suggestions = client.post(url + "/queries").json()
+    assert len(suggestions) == 1
+    assert (
+        client.patch(f"{url}/queries/{suggestions[0]['id']}?enabled=false", json={}).status_code
+        == 200
+    )
+    client.post(url + "/search")
+    assert [parameters.query for parameters in provider.calls] == [DATA["researchQuestion"]]
+
+
+def test_project_question_edit_clears_saved_queries(search_client_named):
+    client, provider, _, llm, url = search_client_named
+    llm.expansion = ["alternate query"]
+    client.post(url + "/queries")
+    assert client.get(url + "/queries").json()
+    changed = {**DATA, "researchQuestion": "new research question"}
+    assert client.put(url, json=changed).status_code == 200
+    assert client.get(url + "/queries").json() == []
 
 
 def test_repeated_search_and_shared_papers(search_client, engine):
@@ -198,10 +241,10 @@ def test_search_deduplicates_ranks_and_persists_counts(search_client):
     response = client.post(url + "/search")
     assert response.status_code == 200
     assert response.json()["duplicateCount"] == 1
-    assert response.json()["paperCount"] == 2
+    assert response.json()["paperCount"] == 1
+    assert response.json()["filteredCount"] == 1
     papers = client.get(url + "/papers").json()
-    assert [item["doi"] for item in papers] == ["10.1000/shared", "10.1000/other"]
-    assert papers[0]["relevanceScore"] > papers[1]["relevanceScore"]
+    assert [item["doi"] for item in papers] == ["10.1000/shared"]
 
 
 def _grouped_papers():
@@ -211,7 +254,7 @@ def _grouped_papers():
             | {
                 "id": f"https://openalex.org/W1{['alpha', 'bravo', 'charlie'].index(group)}{n}",
                 "doi": f"https://doi.org/10.5000/{group}-{n}",
-                "title": f"{group} paper {n}",
+                "title": f"{group} paper {n} about large language models",
                 "abstract_inverted_index": None,
             }
         )
@@ -426,6 +469,40 @@ def test_papers_and_subtopics_carry_manual_fields(search_client_named):
     assert client.get(url + "/subtopics").json()[0]["userModified"] is False
 
 
+def test_subtopics_can_be_created_and_deleted(search_client_named):
+    client, provider, embedder, llm, url = search_client_named
+    _named_search(client, provider, url)
+    created = client.post(url + "/subtopics", json={"name": "Later", "description": "Manual"})
+    assert created.status_code == 201
+    cluster_id = created.json()["clusterId"]
+    paper_id = client.get(url + "/papers").json()[0]["id"]
+    assert (
+        client.patch(f"{url}/papers/{paper_id}", json={"clusterId": cluster_id}).status_code == 200
+    )
+    assert client.delete(f"{url}/subtopics/{cluster_id}").status_code == 204
+    assert client.get(url + "/papers").json()[0]["clusterId"] is None
+
+
+def test_subtopics_can_be_merged(search_client_named):
+    client, provider, embedder, llm, url = search_client_named
+    provider.papers = _grouped_papers()
+    _named_search(client, provider, url)
+    topics = client.get(url + "/subtopics").json()
+    source, target = topics[0]["clusterId"], topics[1]["clusterId"]
+    paper_id = next(
+        paper["id"] for paper in client.get(url + "/papers").json() if paper["clusterId"] == source
+    )
+    merged = client.post(f"{url}/subtopics/{source}/merge", json={"targetClusterId": target})
+    assert merged.status_code == 200 and merged.json()["clusterId"] == target
+    assert client.get(url + "/subtopics").json() and all(
+        topic["clusterId"] != source for topic in client.get(url + "/subtopics").json()
+    )
+    assert (
+        next(p for p in client.get(url + "/papers").json() if p["id"] == paper_id)["clusterId"]
+        == target
+    )
+
+
 def test_papers_carry_access_status(search_client):
     client, provider, url = search_client
     open_access = normalize_work(
@@ -594,3 +671,212 @@ def test_postgres_concurrent_search_start(search_client, engine):
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = [pool.submit(start) for _ in range(2)]
         assert sorted(future.result() for future in futures) == ["conflict", "started"]
+
+
+@pytest.mark.parametrize("field,value", [("title", "Updated title"), ("abstract", "New abstract")])
+def test_embedding_input_changes(search_client_with_embedder, field, value):
+    client, provider, embedder, url = search_client_with_embedder
+    assert client.post(url + "/search").status_code == 200
+    provider.papers = [provider.papers[0].model_copy(update={field: value})]
+    assert client.post(url + "/search").status_code == 200
+    assert len(embedder.batches) == 2
+    assert client.post(url + "/search").status_code == 200
+    assert len(embedder.batches) == 2
+
+
+@pytest.mark.parametrize(
+    "field,value", [("model", "new-model"), ("dimension", 12), ("name", "Other")]
+)
+def test_embedding_identity_changes(search_client_with_embedder, field, value):
+    client, provider, embedder, url = search_client_with_embedder
+    client.post(url + "/search")
+    setattr(embedder, field, value)
+    assert client.post(url + "/search").status_code == 200
+    assert len(embedder.batches) == 2
+
+
+@pytest.mark.parametrize("expired", [False, True])
+def test_organization_search_lease(search_client_named, engine, expired):
+    client, provider, _, _, url = search_client_named
+    provider.papers = _grouped_papers()
+    client.post(url + "/search")
+    paper = client.get(url + "/papers").json()[0]
+    run = client.app.state.search.start(UUID(url.split("/")[-1]))
+    if expired:
+        with Session(engine) as session, session.begin():
+            session.get(SearchRunRow, run.id).startedAt = datetime.now(UTC) - timedelta(seconds=300)
+    expected = 200 if expired else 409
+    assert client.patch(url + "/subtopics/0", json={"name": "Edited"}).status_code == expected
+    assert (
+        client.patch(url + "/papers/" + paper["id"], json={"isRelevant": False}).status_code
+        == expected
+    )
+
+
+def test_empty_destinations_and_patch_validation(search_client_named):
+    client, provider, _, _, url = search_client_named
+    provider.papers = _grouped_papers()
+    client.post(url + "/search")
+    topic = client.get(url + "/subtopics").json()[0]
+    path = url + "/subtopics/" + str(topic["clusterId"])
+    assert (
+        client.patch(path, json={"name": "Renamed"}).json()["description"] == topic["description"]
+    )
+    members = [
+        p for p in client.get(url + "/papers").json() if p["clusterId"] == topic["clusterId"]
+    ]
+    for paper in members:
+        assert (
+            client.patch(url + "/papers/" + paper["id"], json={"clusterId": None}).status_code
+            == 200
+        )
+    path = url + "/papers/" + members[0]["id"]
+    assert client.patch(path, json={"clusterId": topic["clusterId"]}).status_code == 200
+    for value in (None, 0, "false"):
+        assert client.patch(path, json={"isRelevant": value}).status_code == 422
+
+
+@pytest.mark.parametrize(
+    "change", ["move", "rename", "search", "question", "title", "abstract", "description"]
+)
+def test_delayed_explanation_context(search_client_named, engine, change):
+    from researchpilot.search_persistence import SearchConflict, SubtopicRow
+
+    client, provider, _, _, url = search_client_named
+    provider.papers = _grouped_papers()
+    client.post(url + "/search")
+    paper = client.get(url + "/papers").json()[0]
+    project_id, paper_id = UUID(url.split("/")[-1]), UUID(paper["id"])
+    service = client.app.state.search
+    prepared = service._explanation_input(project_id, paper_id)
+    if change == "move":
+        client.patch(url + "/papers/" + paper["id"], json={"clusterId": None})
+    elif change == "rename":
+        client.patch(url + "/subtopics/" + str(paper["clusterId"]), json={"name": "Changed"})
+    elif change == "search":
+        client.post(url + "/search")
+    elif change == "question":
+        client.put(url, json={**DATA, "researchQuestion": "Different question"})
+    else:
+        with Session(engine) as session, session.begin():
+            if change == "description":
+                session.get(SubtopicRow, (project_id, paper["clusterId"])).description = "Changed"
+            else:
+                setattr(session.get(PaperRow, paper_id), change, "Changed")
+    with pytest.raises(SearchConflict):
+        service._store_explanation(project_id, paper_id, "Stale", prepared["fingerprint"])
+    assert client.get(url + "/papers").json()[0]["classificationExplanation"] is None
+
+
+def test_first_explanation_wins_and_rename_invalidates(search_client_named):
+    client, provider, _, llm, url = search_client_named
+    provider.papers = _grouped_papers()
+    client.post(url + "/search")
+    paper = client.get(url + "/papers").json()[0]
+    project_id, paper_id = UUID(url.split("/")[-1]), UUID(paper["id"])
+    service = client.app.state.search
+    prepared = service._explanation_input(project_id, paper_id)
+    assert (
+        service._store_explanation(project_id, paper_id, "First", prepared["fingerprint"])
+        == "First"
+    )
+    assert (
+        service._store_explanation(project_id, paper_id, "Second", prepared["fingerprint"])
+        == "First"
+    )
+    client.patch(url + "/subtopics/" + str(paper["clusterId"]), json={"name": "Changed"})
+    assert client.get(url + "/papers").json()[0]["classificationExplanation"] is None
+    assert client.post(url + "/papers/" + paper["id"] + "/explanation").status_code == 200
+    assert len(llm.explain_calls) == 1
+
+
+@pytest.mark.parametrize("outer", [False, True])
+def test_explanation_timeouts(search_client_named, monkeypatch, outer):
+    client, provider, _, llm, url = search_client_named
+    provider.papers = _grouped_papers()
+    client.post(url + "/search")
+    paper = client.get(url + "/papers").json()[0]
+    if outer:
+
+        async def slow(*args):
+            await asyncio.sleep(1)
+
+        monkeypatch.setattr(llm, "explain_paper", slow)
+        monkeypatch.setattr("researchpilot.search.NAMING_TIMEOUT_SECONDS", 0.001)
+    else:
+        llm.explain_error = ProviderError("TIMEOUT")
+    response = client.post(url + "/papers/" + paper["id"] + "/explanation")
+    assert response.status_code == 504
+    assert response.json()["code"] == "EXPLANATION_TIMEOUT"
+
+
+def test_shared_paper_interleaved_searches_keep_vector_metadata(engine):
+    from researchpilot.search import SearchService
+    from researchpilot.domain import ProjectInput
+    from researchpilot.persistence import ProjectRepository
+    from researchpilot.service import ProjectService
+
+    provider = RecordingProvider()
+    embedder = RecordingEmbeddingProvider()
+    service = SearchService(engine, provider, embedder, RecordingLlmProvider())
+    with Session(engine) as session, session.begin():
+        projects = [
+            ProjectService(ProjectRepository(session)).create(ProjectInput(**DATA))
+            for _ in range(2)
+        ]
+    asyncio.run(service.search(projects[0].id))
+    first = service.start(projects[0].id)
+    reused = asyncio.run(
+        service._prepare(first, SearchResult(papers=provider.papers, totalFound=1))
+    )
+    provider.papers = [provider.papers[0].model_copy(update={"title": "alpha changed"})]
+    asyncio.run(service.search(projects[1].id))
+    service.finish(first, reused)
+    with Session(engine) as session:
+        paper = session.get(PaperRow, provider.papers[0].id)
+        assert paper.title == reused.ranked[0].paper.title
+        assert paper.embedding == reused.vectors[paper.id]
+        assert paper.embeddingInputHash == reused.hashes[paper.id]
+    asyncio.run(service.search(projects[1].id))
+    assert len(embedder.batches) == 3
+
+
+def test_legacy_cache_hashes_are_misses(search_client_named, engine):
+    client, provider, embedder, llm, url = search_client_named
+    provider.papers = _grouped_papers()
+    client.post(url + "/search")
+    paper = client.get(url + "/papers").json()[0]
+    with Session(engine) as session, session.begin():
+        row = session.get(PaperRow, UUID(paper["id"]))
+        row.embeddingInputHash = None
+        association = session.get(ProjectPaperRow, (UUID(url.split("/")[-1]), row.id))
+        association.classificationExplanation = "Legacy text"
+    result = client.post(url + "/papers/" + paper["id"] + "/explanation")
+    assert result.json()["explanation"] != "Legacy text"
+    client.post(url + "/search")
+    assert len(embedder.batches[-1]) == 1
+
+
+def test_postgres_concurrent_explanations_return_first_result(search_client_named, engine):
+    if engine.dialect.name != "postgresql":
+        pytest.skip("Production row locking requires PostgreSQL")
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    client, provider, _, _, url = search_client_named
+    provider.papers = _grouped_papers()
+    client.post(url + "/search")
+    paper = client.get(url + "/papers").json()[0]
+    project_id, paper_id = UUID(url.split("/")[-1]), UUID(paper["id"])
+    service = client.app.state.search
+    prepared = service._explanation_input(project_id, paper_id)
+    barrier = Barrier(2)
+
+    def store(text):
+        barrier.wait(timeout=5)
+        return service._store_explanation(project_id, paper_id, text, prepared["fingerprint"])
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(store, text) for text in ["One", "Two"]]
+        results = [future.result(timeout=10) for future in futures]
+    assert results[0] == results[1]

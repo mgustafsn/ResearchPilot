@@ -8,6 +8,8 @@ NAME_MAX = 80
 DESCRIPTION_MAX = 500
 KEYWORDS_MAX = 8
 EXPLANATION_MAX = 400
+QUERY_MAX = 160
+QUERIES_MAX = 5
 
 
 class PaperBrief(BaseModel):
@@ -70,9 +72,29 @@ class PaperExplanation(BaseModel):
         return value[:EXPLANATION_MAX]
 
 
+class QueryExpansion(BaseModel):
+    """Validated search terms proposed by an LLM."""
+
+    queries: list[str] = Field(default_factory=list)
+
+    @field_validator("queries", mode="before")
+    @classmethod
+    def _queries(cls, value):
+        if not isinstance(value, list):
+            return []
+        cleaned: list[str] = []
+        for item in value:
+            query = " ".join(str(item).split())[:QUERY_MAX]
+            if query and query.casefold() not in {other.casefold() for other in cleaned}:
+                cleaned.append(query)
+        return cleaned[:QUERIES_MAX]
+
+
 class LlmProvider(Protocol):
     name: str
     model: str
+
+    async def expand_queries(self, question: str, keywords: list[str]) -> QueryExpansion: ...
 
     async def name_cluster(self, question: str, papers: list[PaperBrief]) -> ClusterNaming: ...
 

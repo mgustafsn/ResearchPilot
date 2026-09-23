@@ -2,6 +2,25 @@
 
 from .llm import PaperBrief
 
+QUERY_EXPANSION_SYSTEM = (
+    "You generate a small set of scholarly search queries. Given a research question and "
+    "optional keywords, return a JSON object with a `queries` array containing 2 to 5 concise "
+    "queries. Keep each query grounded in the user's topic, use academic terminology, and do "
+    "not add unrelated topics, claims, citations, or invented entities."
+)
+
+
+def query_expansion_messages(question: str, keywords: list[str]) -> list[dict]:
+    keyword_text = ", ".join(keywords) if keywords else "(none)"
+    return [
+        {"role": "system", "content": QUERY_EXPANSION_SYSTEM},
+        {
+            "role": "user",
+            "content": f"Research question: {question}\nKeywords: {keyword_text}",
+        },
+    ]
+
+
 ABSTRACT_CHARS = 1200
 
 CLUSTER_NAMING_SYSTEM = (

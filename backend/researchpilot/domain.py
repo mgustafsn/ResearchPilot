@@ -1,7 +1,15 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    field_validator,
+    model_validator,
+)
 
 
 class ProjectInput(BaseModel):
@@ -38,10 +46,19 @@ class SubtopicPatch(BaseModel):
     description: str = Field(default="", max_length=500)
 
 
+class SubtopicInput(SubtopicPatch):
+    pass
+
+
+class SubtopicMerge(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    targetClusterId: StrictInt = Field(ge=0)
+
+
 class PaperPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
     clusterId: StrictInt | None = Field(default=None, ge=0)
-    isRelevant: bool | None = None
+    isRelevant: StrictBool = True
 
     @model_validator(mode="after")
     def at_least_one_field(self):
