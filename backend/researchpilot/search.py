@@ -252,10 +252,11 @@ class SearchService:
         ranked_all = rank_semantically(lexical, question_vector, by_id)
         ranked = filter_relevant(ranked_all)
         logger.info(
-            "Search analyzed run=%s retrieved=%s unique=%s filtered=%s duration_ms=%s",
+            "Search analyzed run=%s retrieved=%s unique=%s duplicates=%s filtered=%s duration_ms=%s",
             run.id,
             len(result.papers),
             len(ranked_all),
+            duplicate_count,
             len(ranked_all) - len(ranked),
             round((time.perf_counter() - analysis_started) * 1000),
         )
