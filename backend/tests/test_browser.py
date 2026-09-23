@@ -100,6 +100,7 @@ def test_empty_categories_filters_uncategorized_and_retry(browser_app):
     tab = page.locator(".cluster-tab").filter(has_text=empty["name"])
     expect(tab).to_be_visible()
     tab.click()
+    page.locator(".subtopic-menu summary").click()
     expect(page.get_by_role("button", name="Rename subtopic")).to_be_enabled()
     page.get_by_role("button", name="Open access only", exact=True).click()
     page.locator(".paper-row").first.click()
@@ -115,6 +116,26 @@ def test_empty_categories_filters_uncategorized_and_retry(browser_app):
     page.get_by_role("button", name="Retry", exact=True).click()
     expect(page.get_by_role("button", name="Retry", exact=True)).to_have_count(0)
     expect(page.locator(".drawer-panel")).to_contain_text("fits Topic")
+
+
+def test_settings_and_project_references(browser_app):
+    page, url, _, _, _ = browser_app
+    page.goto(page.url.split("/projects/")[0] + "/settings")
+    expect(page.get_by_role("heading", name="Settings")).to_be_visible()
+    expect(page.get_by_text("OpenAlex · available without an API key")).to_be_visible()
+    page.goto(page.url.replace("/settings", "/projects/" + url.rsplit("/", 1)[-1]))
+    page.get_by_role("button", name="References", exact=True).click()
+    page.get_by_role("button", name="Add reference").click()
+    page.locator('.reference-form [name="title"]').fill("My draft paper")
+    page.locator('.reference-form [name="authors"]').fill("A. Researcher\nB. Researcher")
+    page.get_by_role("button", name="Save reference").click()
+    expect(page.locator(".reference-row")).to_contain_text("My draft paper")
+    page.get_by_role("button", name="Overview").click()
+    page.get_by_role("button", name="Find papers", exact=True).click()
+    expect(page.locator(".paper-row")).to_have_count(15)
+    page.locator(".paper-row .card-save").first.click()
+    page.get_by_role("button", name="References", exact=True).click()
+    expect(page.locator(".reference-row")).to_have_count(2)
 
 
 def test_pending_request_survives_early_history_and_poll_failure(browser_app):

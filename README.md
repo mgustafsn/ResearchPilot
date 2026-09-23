@@ -69,6 +69,9 @@ so cosine 0.25 is 0% and 0.60 is 100%. Stopword-filtered lexical overlap only br
 Papers below 40% are filtered before clustering; the count is shown in the search
 summary.
 Users can set retained papers aside and restore them.
+The References tab stores selected search papers and manually entered citations,
+including unlinked drafts. Reference numbers and notes belong to the project and
+remain available after later searches.
 
 Scholarly metadata comes only from `PaperProvider` implementations. Embeddings and
 LLM interpretation use separate interfaces. OpenAI supplies title/abstract embeddings
@@ -134,6 +137,10 @@ provider timeouts and the 30-second outer deadline return 504 with code
 - `/api/projects/{id}/subtopics`: POST to create; DELETE a cluster or POST
   `/{clusterId}/merge` with `targetClusterId` to merge.
 - `/api/projects/{id}/papers/{paperId}/explanation`: POST cached or generated explanation.
+- `/api/projects/{id}/references`: GET list and POST manual citation.
+- `/api/projects/{id}/references/from-paper/{paperId}`: POST to save a search paper.
+- `/api/projects/{id}/references/{referenceId}`: PATCH or DELETE a saved reference.
+- `/api/settings/status`: GET provider configuration flags without credentials.
 
 Invalid input returns 422, missing resources 404, conflicts 409, and database failures
 503. See `/docs` for schemas. The browser and provider tests use fake providers and

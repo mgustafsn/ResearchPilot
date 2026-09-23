@@ -41,6 +41,7 @@ sequence number. Each feature gets a branch `feat/<name>`, a note in
 | --- | --- | --- |
 | Research map | Research map, category tabs, staged search progress, paper drawer | [research-map](features/research-map.md) |
 | Settings and navigation | Settings page and complete primary navigation | [settings-and-navigation](features/settings-and-navigation.md) |
+| Project references and interface cleanup | Durable project citations, provider status, and research map control fixes | [project-references](features/project-references.md) |
 
 ### Demo stabilization
 

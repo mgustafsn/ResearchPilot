@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import os
 from pathlib import Path
 from uuid import UUID
 
@@ -8,7 +9,7 @@ from fastapi import Depends, FastAPI, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import create_engine
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from .config import database_url, openai_headers, openalex_headers
@@ -33,6 +34,13 @@ from .search_persistence import (
     ManualEditsPresent,
     SearchConflict,
     UnknownCluster,
+)
+from .references import (
+    ManualReferenceInput,
+    ReferenceConflict,
+    ReferenceMissing,
+    ReferencePatch,
+    ReferenceService,
 )
 
 FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
@@ -65,6 +73,24 @@ def create_app(engine=None, provider=None, embedding_provider=None, llm_provider
     def service():
         with Session(app.state.engine) as session, session.begin():
             yield ProjectService(ProjectRepository(session))
+
+    def references():
+        with Session(app.state.engine) as session, session.begin():
+            yield ReferenceService(session)
+
+    @app.exception_handler(ReferenceMissing)
+    async def reference_missing(request, exc):
+        return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+    @app.exception_handler(ReferenceConflict)
+    async def reference_conflict(request, exc):
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+    @app.exception_handler(IntegrityError)
+    async def reference_integrity(request, exc):
+        return JSONResponse(
+            status_code=409, content={"detail": "Reference number or DOI already used"}
+        )
 
     @app.exception_handler(ProjectNotFound)
     async def not_found(request, exc):
@@ -99,6 +125,49 @@ def create_app(engine=None, provider=None, embedding_provider=None, llm_provider
     @app.delete("/api/projects/{project_id}", status_code=204)
     def delete_project(project_id: UUID, svc=Depends(service, scope="function")):
         svc.delete(project_id)
+        return Response(status_code=204)
+
+    @app.get("/api/settings/status")
+    def settings_status():
+        return {
+            "scholarlyProvider": "OpenAlex",
+            "openAlexApiKeyConfigured": bool(os.environ.get("OPENALEX_API_KEY", "").strip()),
+            "openAlexEmailConfigured": bool(os.environ.get("OPENALEX_EMAIL", "").strip()),
+            "llmProvider": "OpenAI",
+            "openAiApiKeyConfigured": bool(os.environ.get("OPENAI_API_KEY", "").strip()),
+            "customOpenAiEndpointConfigured": bool(os.environ.get("OPENAI_BASE_URL", "").strip()),
+        }
+
+    @app.get("/api/projects/{project_id}/references")
+    def list_references(project_id: UUID, svc=Depends(references, scope="function")):
+        return svc.list(project_id)
+
+    @app.post("/api/projects/{project_id}/references", status_code=201)
+    def add_reference(
+        project_id: UUID, data: ManualReferenceInput, svc=Depends(references, scope="function")
+    ):
+        return svc.add_manual(project_id, data)
+
+    @app.post("/api/projects/{project_id}/references/from-paper/{paper_id}")
+    def save_paper_reference(
+        project_id: UUID, paper_id: UUID, svc=Depends(references, scope="function")
+    ):
+        return svc.save_paper(project_id, paper_id)
+
+    @app.patch("/api/projects/{project_id}/references/{reference_id}")
+    def update_reference(
+        project_id: UUID,
+        reference_id: UUID,
+        data: ReferencePatch,
+        svc=Depends(references, scope="function"),
+    ):
+        return svc.update(project_id, reference_id, data)
+
+    @app.delete("/api/projects/{project_id}/references/{reference_id}", status_code=204)
+    def delete_reference(
+        project_id: UUID, reference_id: UUID, svc=Depends(references, scope="function")
+    ):
+        svc.delete(project_id, reference_id)
         return Response(status_code=204)
 
     @app.exception_handler(SearchConflict)

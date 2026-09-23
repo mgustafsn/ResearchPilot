@@ -170,16 +170,21 @@ function projectForm(project = {}) {
     }
   });
 }
-function settings() {
+async function settings() {
+  const response = await fetch('/api/settings/status');
+  if (!response.ok) throw new Error('Unable to load provider settings.');
+  const status = await response.json();
   heading('Settings', 'Review how ResearchPilot connects to scholarly and language-model providers.');
   tabs('Provider settings');
   const layout = element('div', '', content, 'workspace');
   const providers = panel(layout, 'Connected providers', 'sliders');
   const list = element('dl', '', providers, 'details-list');
   for (const [label, value] of [
-    ['Scholarly metadata', 'OpenAlex'],
-    ['Embeddings', 'OpenAI · configured on the server'],
-    ['Cluster naming and explanations', 'OpenAI · configured on the server'],
+    ['Scholarly metadata', `${status.scholarlyProvider} · available without an API key`],
+    ['OpenAlex API key', status.openAlexApiKeyConfigured ? 'Configured' : 'Not configured (optional)'],
+    ['OpenAlex email', status.openAlexEmailConfigured ? 'Configured' : 'Not configured (optional)'],
+    ['Embeddings and language model', `${status.llmProvider} · ${status.openAiApiKeyConfigured ? 'API key configured' : 'API key missing'}`],
+    ['Custom OpenAI endpoint', status.customOpenAiEndpointConfigured ? 'Configured' : 'Using default endpoint'],
     ['Authentication', 'API keys are never sent to the browser'],
   ]) {
     element('dt', label, list); element('dd', value, list);
@@ -249,8 +254,21 @@ function detail(project) {
   const actions = element('div', '', content, 'detail-toolbar');
   element('span', 'Saved project', actions, 'chip saved-chip');
   link('Edit project', `/projects/${project.id}/edit`, actions, 'button').prepend(icon('sliders'));
-  tabs('Overview');
+  const pageTabs = element('div', '', content, 'section-tabs project-tabs');
+  const overviewTab = element('button', 'Overview', pageTabs, 'selected-tab');
+  const referencesTab = element('button', 'References', pageTabs);
+  overviewTab.type = referencesTab.type = 'button';
   const layout = element('div', '', content, 'workspace');
+  const referencesPanel = element('div', '', content);
+  referencesPanel.hidden = true;
+  function selectTab(references) {
+    layout.hidden = references;
+    referencesPanel.hidden = !references;
+    overviewTab.classList.toggle('selected-tab', !references);
+    referencesTab.classList.toggle('selected-tab', references);
+  }
+  overviewTab.addEventListener('click', () => selectTab(false));
+  referencesTab.addEventListener('click', () => selectTab(true));
   const left = element('div', '', layout, 'context-column');
   const summary = panel(left, 'Research description');
   element('p', project.researchQuestion, summary, 'research-question');
@@ -271,7 +289,8 @@ function detail(project) {
   note(aside, 'Good research takes shape', 'Your project keeps the starting point of your research in focus. Revisit your question and refine it as your thinking develops.');
   const management = element('div', '', aside, 'project-management');
   const remove = element('button', 'Delete project', management, 'danger');
-  literature(project, left, aside, actions, remove);
+  const referenceLibrary = renderReferenceLibrary(project, referencesPanel);
+  literature(project, left, aside, actions, remove, referenceLibrary);
   remove.addEventListener('click', async () => {
     if (!confirm(`Delete “${project.title}”? This cannot be undone.`)) return;
     remove.disabled = true;
@@ -279,7 +298,132 @@ function detail(project) {
     catch (error) { showError(error); remove.disabled = false; }
   });
 }
-function literature(project, left, aside, actions, remove) {
+function renderReferenceLibrary(project, container) {
+  const projectPath = `/${project.id}/references`;
+  const savedIds = new Set();
+  const savedDois = new Set();
+  const doiKey = doi => doi?.trim().toLowerCase().replace(/^(https?:\/\/doi\.org\/|doi:)/, '');
+  const toolbar = element('div', '', container, 'reference-toolbar');
+  element('h2', 'Project references', toolbar);
+  const addButton = element('button', 'Add reference', toolbar);
+  const formBox = element('section', '', container, 'panel reference-form-box');
+  formBox.hidden = true;
+  const list = element('section', '', container, 'panel reference-list');
+  let editing = null;
+  const form = element('form', '', formBox, 'reference-form');
+  const fields = [
+    ['title', 'Title', 'text'], ['authors', 'Authors (one per line)', 'textarea'],
+    ['year', 'Year', 'number'], ['venue', 'Journal or venue', 'text'],
+    ['doi', 'DOI', 'text'], ['url', 'Link', 'url'],
+    ['number', 'Reference number', 'number'], ['notes', 'Notes', 'textarea'],
+  ];
+  for (const [name, labelText, type] of fields) {
+    const label = element('label', labelText, form);
+    const input = element(type === 'textarea' ? 'textarea' : 'input', '', label);
+    input.name = name;
+    if (type !== 'textarea') input.type = type;
+    if (name === 'title' || name === 'number') input.required = true;
+    if (name === 'number') input.min = '1';
+    if (name === 'year') { input.min = '1'; input.max = '9999'; }
+  }
+  const statusLabel = element('label', 'Status', form);
+  const status = element('select', '', statusLabel);
+  status.name = 'status';
+  for (const value of ['Draft', 'Submitted', 'Accepted', 'Published']) element('option', value, status).value = value;
+  const buttons = element('div', '', form, 'form-actions');
+  element('button', 'Save reference', buttons);
+  element('button', 'Cancel', buttons, 'secondary').addEventListener('click', event => {
+    event.preventDefault(); formBox.hidden = true;
+  });
+  function openForm(reference = null, suggestedNumber = 1) {
+    editing = reference;
+    form.reset();
+    for (const [name] of fields) {
+      form.elements[name].value = reference?.[name] ?? (name === 'number' ? suggestedNumber : '');
+    }
+    form.elements.authors.value = (reference?.authors || []).join('\n');
+    status.value = reference?.status || 'Draft';
+    formBox.hidden = false;
+    form.elements.title.focus();
+  }
+  let nextNumber = 1;
+  addButton.addEventListener('click', () => openForm(null, nextNumber));
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    const data = {
+      title: form.elements.title.value.trim(),
+      authors: form.elements.authors.value.split('\n').map(s => s.trim()).filter(Boolean),
+      year: form.elements.year.value ? Number(form.elements.year.value) : null,
+      venue: form.elements.venue.value.trim() || null,
+      doi: form.elements.doi.value.trim() || null,
+      url: form.elements.url.value.trim() || null,
+      number: Number(form.elements.number.value),
+      notes: form.elements.notes.value,
+      status: status.value,
+    };
+    try {
+      await api(editing ? `${projectPath}/${editing.id}` : projectPath, {
+        method: editing ? 'PATCH' : 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data),
+      });
+      formBox.hidden = true;
+      await refresh();
+    } catch (error) { showError(error); }
+  });
+  async function refresh() {
+    const references = await api(projectPath);
+    savedIds.clear();
+    savedDois.clear();
+    references.forEach(reference => {
+      if (reference.paperId) {
+        savedIds.add(reference.paperId);
+        if (reference.doi) savedDois.add(doiKey(reference.doi));
+      }
+    });
+    nextNumber = Math.max(0, ...references.map(reference => reference.number)) + 1;
+    list.replaceChildren();
+    sectionHeading(list, `Saved references (${references.length})`);
+    if (!references.length) element('p', 'No references yet. Save a search paper or add your own work.', list, 'muted');
+    for (const reference of references) {
+      const row = element('article', '', list, 'reference-row');
+      element('h3', `[${reference.number}] ${reference.title || 'Title unavailable'}`, row);
+      const metadata = [reference.authors.join(', '), reference.year, reference.venue, reference.status].filter(Boolean).join(' · ');
+      if (metadata) element('p', metadata, row, 'paper-metadata');
+      if (reference.doi) element('p', `DOI: ${reference.doi}`, row, 'paper-doi');
+      if (reference.notes) element('p', reference.notes, row, 'reference-notes');
+      const actions = element('div', '', row, 'reference-actions');
+      if (reference.url) {
+        const open = link('Open link', reference.url, actions, 'button secondary');
+        open.target = '_blank'; open.rel = 'noopener noreferrer';
+      }
+      if (reference.sourceUrl && reference.sourceUrl !== reference.url) {
+        const source = link('Scholarly source', reference.sourceUrl, actions, 'button secondary');
+        source.target = '_blank'; source.rel = 'noopener noreferrer';
+      }
+      element('button', 'Edit', actions, 'secondary').addEventListener('click', () => {
+        if (reference.manual) openForm(reference);
+        else {
+          const number = window.prompt('Reference number', reference.number);
+          if (number === null) return;
+          const notes = window.prompt('Notes', reference.notes);
+          if (notes === null) return;
+          api(`${projectPath}/${reference.id}`, {method: 'PATCH', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({number: Number(number), notes})}).then(refresh).catch(showError);
+        }
+      });
+      element('button', 'Remove', actions, 'secondary').addEventListener('click', async () => {
+        if (!window.confirm(`Remove reference [${reference.number}] from this project?`)) return;
+        try { await api(`${projectPath}/${reference.id}`, {method: 'DELETE'}); await refresh(); }
+        catch (error) { showError(error); }
+      });
+    }
+    window.dispatchEvent(new Event('references-changed'));
+  }
+  const ready = refresh().catch(showError);
+  return {refresh, ready, isSaved: paper => savedIds.has(paper.id) ||
+    Boolean(paper.doi && savedDois.has(doiKey(paper.doi)))};
+}
+function literature(project, left, aside, actions, remove, referenceLibrary) {
   const searchButton = element('button', 'Find papers', actions);
   searchButton.prepend(icon('search'));
   const papersPanel = panel(left, 'Papers', 'document');
@@ -314,7 +458,7 @@ function literature(project, left, aside, actions, remove) {
   function setBusy(value) {
     value = value || pendingSearch;
     busy = value;
-    document.querySelectorAll(".drawer-organize select, .drawer-organize button, .edit-name, .rename-form input, .rename-form textarea, .rename-form button, .query-controls input, .query-controls button").forEach(control => { control.disabled = value; });
+    document.querySelectorAll(".drawer-organize select, .drawer-organize button, .subtopic-menu button, .subtopic-menu select, .rename-form input, .rename-form textarea, .rename-form button, .query-controls input, .query-controls button").forEach(control => { control.disabled = value; });
     searchButton.disabled = value || noEnabledQueries;
     searchButton.textContent = value ? 'Searching OpenAlex…' : 'Find papers';
     if (!value) searchButton.prepend(icon('search'));
@@ -356,6 +500,16 @@ function literature(project, left, aside, actions, remove) {
     element('span', 'Paper details', head, 'query-label');
     element('button', 'Close', head, 'secondary').addEventListener('click', closeDrawer);
     element('h2', paper.title || 'Title unavailable', drawerPanel, 'drawer-title');
+    const save = element('button', referenceLibrary.isSaved(paper) ? 'Saved to references' : 'Save reference', drawerPanel, 'secondary save-reference');
+    save.disabled = referenceLibrary.isSaved(paper);
+    save.addEventListener('click', async () => {
+      save.disabled = true;
+      try {
+        await api(`${projectPath}/references/from-paper/${paper.id}`, {method: 'POST'});
+        await referenceLibrary.refresh();
+        save.textContent = 'Saved to references';
+      } catch (error) { save.disabled = false; showError(error); }
+    });
     if (clusterOptions && clusterOptions.length) {
       const organize = element('div', '', drawerPanel, 'drawer-organize');
       const moveLabel = element('label', 'Subtopic ', organize);
@@ -540,7 +694,10 @@ function literature(project, left, aside, actions, remove) {
       const keywords = element('div', '', wrap, 'keyword-list');
       for (const keyword of topic.keywords) element('span', keyword, keywords, 'keyword');
     }
-    const editButton = element('button', 'Rename subtopic', wrap, 'secondary edit-name');
+    const management = element('details', '', wrap, 'subtopic-menu');
+    element('summary', 'Manage subtopic', management);
+    const menu = element('div', '', management, 'subtopic-menu-items');
+    const editButton = element('button', 'Rename subtopic', menu, 'secondary');
     editButton.disabled = busy;
     editButton.addEventListener('click', () => {
       wrap.replaceChildren();
@@ -565,7 +722,7 @@ function literature(project, left, aside, actions, remove) {
       });
       name.focus();
     });
-    const deleteButton = element('button', 'Delete subtopic', wrap, 'secondary edit-name');
+    const deleteButton = element('button', 'Delete subtopic', menu, 'secondary');
     deleteButton.disabled = busy;
     deleteButton.addEventListener('click', async () => {
       if (!window.confirm(`Delete ${topic.name}? Its papers will become uncategorized.`)) return;
@@ -574,7 +731,7 @@ function literature(project, left, aside, actions, remove) {
     });
     const mergeTargets = topics.filter(item => item.clusterId !== topic.clusterId);
     if (mergeTargets.length) {
-      const merge = element('select', '', wrap, 'merge-subtopic');
+      const merge = element('select', '', menu, 'merge-subtopic');
       element('option', 'Merge into…', merge).disabled = true;
       for (const target of mergeTargets) element('option', target.name, merge).value = target.clusterId;
       merge.disabled = busy;
@@ -605,6 +762,17 @@ function literature(project, left, aside, actions, remove) {
     if (topic) inlineExplanation(paper, topic.name, row);
     const footer = element('div', '', row, 'project-meta');
     element('span', `Relevance: ${Math.round((paper.relevanceScore ?? 0) * 100)}% · Citations: ${paper.citationCount ?? 'Unavailable'} · ${paper.source}`, footer);
+    const save = element('button', referenceLibrary.isSaved(paper) ? 'Saved' : 'Save reference', footer, 'secondary card-save');
+    save.disabled = referenceLibrary.isSaved(paper);
+    save.addEventListener('click', async event => {
+      event.stopPropagation();
+      save.disabled = true;
+      try {
+        await api(`${projectPath}/references/from-paper/${paper.id}`, {method: 'POST'});
+        await referenceLibrary.refresh();
+        save.textContent = 'Saved';
+      } catch (error) { save.disabled = false; showError(error); }
+    });
     const details = element('span', 'View details', footer, 'open-link');
     details.append(icon('arrow'));
     const open = () => openDrawer(paper, named, clusterOptions);
@@ -746,6 +914,7 @@ function literature(project, left, aside, actions, remove) {
     }
   }
   async function refresh() {
+    await referenceLibrary.ready;
     const version = ++refreshVersion;
     clearTimeout(timer);
     const history = await api(`${projectPath}/searches`);
@@ -803,6 +972,7 @@ function literature(project, left, aside, actions, remove) {
     try { await refresh(); } catch (error) { showError(error); }
   }
   searchButton.addEventListener('click', () => runSearch(false));
+  window.addEventListener('references-changed', () => refresh().catch(showError));
   refresh().catch(error => {
     papersBody.replaceChildren();
     element('p', 'Unable to load saved papers. Refresh to try again.', papersBody, 'muted');
@@ -811,7 +981,7 @@ function literature(project, left, aside, actions, remove) {
 }
 async function render() {
   const parts = location.pathname.split('/').filter(Boolean);
-  const currentNav = document.querySelector(`[data-nav="${parts[1] === 'new' ? 'new' : parts[1] === 'settings' ? 'settings' : 'library'}"]`);
+  const currentNav = document.querySelector(`[data-nav="${parts[0] === 'settings' ? 'settings' : parts[1] === 'new' ? 'new' : 'library'}"]`);
   currentNav.setAttribute('aria-current', 'page');
   if (!parts.length) {
     const projects = await api();
@@ -820,9 +990,9 @@ async function render() {
   } else if (parts[1] === 'new') {
     content.replaceChildren();
     projectForm();
-  } else if (parts[1] === 'settings') {
+  } else if (parts[0] === 'settings') {
     content.replaceChildren();
-    settings();
+    await settings();
   } else {
     const project = await api(`/${parts[1]}`);
     content.replaceChildren();

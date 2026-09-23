@@ -166,6 +166,72 @@ def test_search_persists_real_metadata_and_snapshot(search_client, engine):
     assert 0 <= papers[0]["relevanceScore"] <= 1
 
 
+def test_reference_library_survives_search_and_merges_matching_manual_doi(search_client):
+    client, provider, url = search_client
+    paper = provider.papers[0]
+    manual = client.post(
+        url + "/references",
+        json={
+            "title": "My annotated citation",
+            "doi": paper.doi,
+            "authors": ["Researcher One"],
+            "status": "Draft",
+            "notes": "Keep this version",
+        },
+    )
+    assert manual.status_code == 201
+    reference = manual.json()
+    assert reference["number"] == 1
+    assert reference["url"] is None
+    assert (
+        client.post(url + "/references", json={"title": "Duplicate", "doi": paper.doi}).status_code
+        == 409
+    )
+    assert (
+        client.post(url + "/references", json={"title": "Second", "number": 1}).status_code == 409
+    )
+    assert client.post(url + "/search").status_code == 200
+    paper_id = client.get(url + "/papers").json()[0]["id"]
+    saved = client.post(url + "/references/from-paper/" + paper_id)
+    assert saved.status_code == 200
+    assert saved.json()["id"] == reference["id"]
+    assert saved.json()["title"] == "My annotated citation"
+    assert saved.json()["sourceUrl"]
+    assert client.post(url + "/references/from-paper/" + paper_id).json()["id"] == reference["id"]
+    provider.papers = []
+    client.post(url + "/search")
+    assert client.get(url + "/references").json()[0]["id"] == reference["id"]
+
+
+def test_reference_edit_is_project_scoped_and_scholarly_metadata_is_immutable(search_client):
+    client, _, url = search_client
+    client.post(url + "/search")
+    paper_id = client.get(url + "/papers").json()[0]["id"]
+    reference = client.post(url + "/references/from-paper/" + paper_id).json()
+    path = url + "/references/" + reference["id"]
+    assert client.patch(path, json={"title": "Invented title"}).status_code == 409
+    changed = client.patch(path, json={"number": 3, "notes": "Read later"})
+    assert changed.status_code == 200
+    assert changed.json()["number"] == 3
+    other = client.post("/api/projects", json=DATA).json()
+    other_path = f"/api/projects/{other['id']}/references/{reference['id']}"
+    assert client.patch(other_path, json={"notes": "No"}).status_code == 404
+    assert client.delete(other_path).status_code == 404
+    assert client.delete(path).status_code == 204
+    assert client.get(url + "/references").json() == []
+    assert client.post(url + "/references", json={"title": "Unlinked draft"}).status_code == 201
+    assert client.delete(url).status_code == 204
+    assert client.get(url + "/references").status_code == 404
+
+
+def test_settings_status_exposes_only_configuration_flags(client, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "secret-test-key")
+    response = client.get("/api/settings/status")
+    assert response.status_code == 200
+    assert response.json()["openAiApiKeyConfigured"] is True
+    assert "secret-test-key" not in response.text
+
+
 def _retrieved(provider):
     return [parameters.query for parameters in provider.calls]
 

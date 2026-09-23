@@ -41,6 +41,7 @@ def _already_applied(inspector, migration_number: int) -> bool:
         11: ("search_queries",),
         12: ("search_runs",),
         13: ("search_queries",),
+        14: ("project_references",),
     }
     required_tables = requirements[migration_number]
     if not all(table in tables for table in required_tables):
