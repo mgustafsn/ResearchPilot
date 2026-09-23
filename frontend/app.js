@@ -169,6 +169,25 @@ function projectForm(project = {}) {
     }
   });
 }
+function settings() {
+  heading('Settings', 'Review how ResearchPilot connects to scholarly and language-model providers.');
+  tabs('Provider settings');
+  const layout = element('div', '', content, 'workspace');
+  const providers = panel(layout, 'Connected providers', 'sliders');
+  const list = element('dl', '', providers, 'details-list');
+  for (const [label, value] of [
+    ['Scholarly metadata', 'OpenAlex'],
+    ['Embeddings', 'OpenAI · configured on the server'],
+    ['Cluster naming and explanations', 'OpenAI · configured on the server'],
+    ['Authentication', 'API keys are never sent to the browser'],
+  ]) {
+    element('dt', label, list); element('dd', value, list);
+  }
+  const help = panel(layout, 'Configuration', 'bulb');
+  element('p', 'Provider credentials and endpoints are configured with environment variables on the backend.', help, 'muted');
+  element('p', 'Set OPENAI_API_KEY to enable embeddings, query expansion, cluster naming, and explanations. Optional OpenAlex and OpenAI endpoint settings are documented in the project README.', help, 'muted');
+  link('Back to library', '/', help, 'button secondary');
+}
 function dashboard(projects) {
   heading('A home for your next research discovery',
     'Capture your questions, organize your projects, and pick up where you left off.');
@@ -271,21 +290,29 @@ function literature(project, left, aside, actions, remove) {
   const searchBody = element('div', '', searchPanel);
   element('p', 'Loading saved papers…', papersBody, 'muted');
   let busy = false;
+  let pendingSearch = false;
   let timer;
+  let refreshVersion = 0;
   let displayedRunId;
   let showSetAside = false;
   let openAccessOnly = false;
   const projectPath = `/${project.id}`;
   function patchAndRefresh(path, body) {
+    if (busy) return Promise.resolve();
     errorBox.hidden = true;
     return api(path, {method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)})
       .then(() => refresh())
-      .catch(showError);
+      .catch(async error => {
+        if (error.status === 409) { closeDrawer(); await refresh(); }
+        showError(error);
+      });
   }
   const editLink = actions.querySelector('a');
   editLink.classList.add('secondary');
   function setBusy(value) {
+    value = value || pendingSearch;
     busy = value;
+    document.querySelectorAll(".drawer-organize select, .drawer-organize button, .edit-name, .rename-form input, .rename-form textarea, .rename-form button").forEach(control => { control.disabled = value; });
     searchButton.disabled = value;
     searchButton.textContent = value ? 'Searching OpenAlex…' : 'Find papers';
     if (!value) searchButton.prepend(icon('search'));
@@ -335,6 +362,7 @@ function literature(project, left, aside, actions, remove) {
         const el = element('option', option.label, move);
         el.value = option.id === null ? '' : String(option.id);
       }
+      move.disabled = busy;
       move.value = paper.clusterId === null || paper.clusterId === undefined ? '' : String(paper.clusterId);
       move.addEventListener('change', () => {
         patchAndRefresh(`${projectPath}/papers/${paper.id}`,
@@ -343,6 +371,7 @@ function literature(project, left, aside, actions, remove) {
       });
       const relevance = element('button', paper.isRelevant === false ? 'Restore to results' : 'Set aside as irrelevant',
         organize, 'secondary');
+      relevance.disabled = busy;
       relevance.addEventListener('click', () => {
         patchAndRefresh(`${projectPath}/papers/${paper.id}`, {isRelevant: paper.isRelevant === false});
         closeDrawer();
@@ -378,10 +407,6 @@ function literature(project, left, aside, actions, remove) {
   function explanationSection(paper, subtopicName) {
     element('h3', `Why it's in ${subtopicName}`, drawerPanel);
     const body = element('p', '', drawerPanel, 'drawer-abstract');
-    if (paper.classificationExplanation) {
-      body.textContent = paper.classificationExplanation;
-      return;
-    }
     const load = () => {
       body.replaceChildren();
       body.className = 'drawer-abstract muted';
@@ -390,7 +415,13 @@ function literature(project, left, aside, actions, remove) {
         paper.classificationExplanation = result.explanation;
         body.className = 'drawer-abstract';
         body.textContent = result.explanation;
-      }).catch(error => {
+      }).catch(async error => {
+        if (error.status === 409) {
+          closeDrawer();
+          await refresh();
+          showError(error);
+          return;
+        }
         body.className = 'drawer-abstract';
         body.replaceChildren();
         element('span', `Could not generate an explanation. ${error.message} `, body, 'search-failure');
@@ -413,6 +444,7 @@ function literature(project, left, aside, actions, remove) {
         : `Retrieved from ${completed.provider} on ${date(completed.finishedAt)}.`, papersBody, 'field-help');
       if (completed.skippedCount) element('p', `${completed.skippedCount} provider records could not be normalized.`, papersBody, 'field-help');
       if (completed.duplicateCount) element('p', `${completed.duplicateCount} duplicate ${completed.duplicateCount === 1 ? 'record was' : 'records were'} merged by DOI, identifier, or title.`, papersBody, 'field-help');
+      if (completed.filteredCount) element('p', `${completed.filteredCount} low-relevance ${completed.filteredCount === 1 ? 'paper was' : 'papers were'} filtered out before clustering.`, papersBody, 'field-help');
       const topicCount = (subtopics || []).length;
       const oaCount = papers.filter(p => p.accessStatus === 'OPEN_ACCESS').length;
       element('p', `${papers.length} ${papers.length === 1 ? 'paper' : 'papers'} · ${topicCount || 'no'} ${topicCount === 1 ? 'subtopic' : 'subtopics'} · ${oaCount} open access · ${yearRange(completed.parameters)}`, papersBody, 'research-summary');
@@ -440,7 +472,7 @@ function literature(project, left, aside, actions, remove) {
       filters, `secondary set-aside-toggle${openAccessOnly ? ' active' : ''}`);
     oaToggle.setAttribute('aria-pressed', String(openAccessOnly));
     oaToggle.addEventListener('click', () => { openAccessOnly = !openAccessOnly; refresh().catch(showError); });
-    const clusterIds = [...new Set(visible.map(paper => paper.clusterId))]
+    const clusterIds = [...new Set([...named.keys(), ...papers.map(paper => paper.clusterId)])]
       .filter(id => id !== null && id !== undefined)
       .sort((a, b) => a - b);
     const groups = clusterIds.map(id => ({
@@ -450,18 +482,29 @@ function literature(project, left, aside, actions, remove) {
       members: visible.filter(p => p.clusterId === id),
     }));
     const uncategorized = visible.filter(p => p.clusterId === null || p.clusterId === undefined);
-    if (uncategorized.length) groups.push({id: null, name: 'Uncategorized', topic: null, members: uncategorized});
+    groups.push({id: null, name: 'Uncategorized', topic: null, members: uncategorized});
     const clusterOptions = groups.map(group => ({id: group.id, label: group.name}));
-    if (groups.length < 2) {
-      for (const paper of visible) paperRow(paper, papersBody, named, clusterOptions);
-      return;
-    }
     if (completed && completed.namingError) {
       element('p', 'Automatic cluster names were unavailable for this search.', papersBody, 'field-help');
     }
     const tabRow = element('div', '', papersBody, 'cluster-tabs');
+    const subtopicActions = element('div', '', papersBody, 'subtopic-actions');
+    element('span', 'Subtopic organization', subtopicActions, 'subtopic-actions-label');
+    const createSubtopic = element('button', 'Create subtopic', subtopicActions, 'secondary');
+    createSubtopic.disabled = busy;
+    createSubtopic.addEventListener('click', async () => {
+      const name = window.prompt('Subtopic name');
+      if (!name || !name.trim()) return;
+      const description = window.prompt('Description (optional)', '') ?? '';
+      try {
+        await api(`${projectPath}/subtopics`, {
+          method: 'POST', body: JSON.stringify({name: name.trim(), description}),
+        });
+        await refresh();
+      } catch (error) { showError(error); }
+    });
     const detail = element('div', '', papersBody);
-    const list = element('div', '', papersBody);
+    const list = element('div', '', papersBody, 'paper-list');
     let active = null;
     const allButton = element('button', '', tabRow, 'cluster-tab');
     element('span', 'All', allButton);
@@ -482,12 +525,12 @@ function literature(project, left, aside, actions, remove) {
       detail.replaceChildren();
       list.replaceChildren();
       const group = index === null ? null : groups[index];
-      if (group && group.topic) subtopicHeader(group.topic, detail);
+      if (group && group.topic) subtopicHeader(group.topic, detail, subtopics || []);
       for (const paper of group ? group.members : visible) paperRow(paper, list, named, clusterOptions);
     }
     select(null);
   }
-  function subtopicHeader(topic, wrap) {
+  function subtopicHeader(topic, wrap, topics) {
     wrap.replaceChildren();
     const text = element('p', topic.description, wrap, 'cluster-description');
     if (topic.userModified) element('span', 'edited', text, 'edit-tag');
@@ -496,6 +539,7 @@ function literature(project, left, aside, actions, remove) {
       for (const keyword of topic.keywords) element('span', keyword, keywords, 'keyword');
     }
     const editButton = element('button', 'Rename subtopic', wrap, 'secondary edit-name');
+    editButton.disabled = busy;
     editButton.addEventListener('click', () => {
       wrap.replaceChildren();
       const form = element('form', '', wrap, 'rename-form');
@@ -510,7 +554,7 @@ function literature(project, left, aside, actions, remove) {
       element('button', 'Save', formActions);
       element('button', 'Cancel', formActions, 'secondary').addEventListener('click', event => {
         event.preventDefault();
-        subtopicHeader(topic, wrap);
+        subtopicHeader(topic, wrap, topics);
       });
       form.addEventListener('submit', event => {
         event.preventDefault();
@@ -519,6 +563,28 @@ function literature(project, left, aside, actions, remove) {
       });
       name.focus();
     });
+    const deleteButton = element('button', 'Delete subtopic', wrap, 'secondary edit-name');
+    deleteButton.disabled = busy;
+    deleteButton.addEventListener('click', async () => {
+      if (!window.confirm(`Delete ${topic.name}? Its papers will become uncategorized.`)) return;
+      try { await api(`${projectPath}/subtopics/${topic.clusterId}`, {method: 'DELETE'}); await refresh(); }
+      catch (error) { showError(error); }
+    });
+    const mergeTargets = topics.filter(item => item.clusterId !== topic.clusterId);
+    if (mergeTargets.length) {
+      const merge = element('select', '', wrap, 'merge-subtopic');
+      element('option', 'Merge into…', merge).disabled = true;
+      for (const target of mergeTargets) element('option', target.name, merge).value = target.clusterId;
+      merge.disabled = busy;
+      merge.addEventListener('change', async () => {
+        try {
+          await api(`${projectPath}/subtopics/${topic.clusterId}/merge`, {
+            method: 'POST', body: JSON.stringify({targetClusterId: Number(merge.value)}),
+          });
+          await refresh();
+        } catch (error) { showError(error); }
+      });
+    }
   }
   function paperRow(paper, parent, named, clusterOptions) {
     const row = element('article', '', parent, 'project-row paper-row');
@@ -533,6 +599,8 @@ function literature(project, left, aside, actions, remove) {
     element('p', `${authorLabel} · ${paper.publicationYear ?? 'Year unavailable'}`, row, 'paper-metadata');
     if (paper.venue) element('p', paper.venue, row, 'paper-metadata');
     if (paper.doi) element('p', `DOI: ${paper.doi}`, row, 'paper-doi');
+    const topic = named.get(paper.clusterId);
+    if (topic) inlineExplanation(paper, topic.name, row);
     const footer = element('div', '', row, 'project-meta');
     element('span', `Relevance: ${Math.round((paper.relevanceScore ?? 0) * 100)}% · Citations: ${paper.citationCount ?? 'Unavailable'} · ${paper.source}`, footer);
     const details = element('span', 'View details', footer, 'open-link');
@@ -543,15 +611,74 @@ function literature(project, left, aside, actions, remove) {
       if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); }
     });
   }
-  function showSearch(history) {
+  function inlineExplanation(paper, subtopicName, row) {
+    const wrap = element('div', '', row, 'card-explanation');
+    const body = element('p', '', wrap, 'card-explanation-body');
+    const show = text => {
+      body.replaceChildren();
+      body.textContent = text;
+    };
+    if (paper.classificationExplanation) show(paper.classificationExplanation);
+    else body.textContent = 'Explanation available on request.';
+    const button = element('button', paper.classificationExplanation ? 'Refresh explanation' : 'Why is this here?', wrap, 'secondary card-explanation-button');
+    button.addEventListener('click', async event => {
+      event.stopPropagation();
+      button.disabled = true;
+      show('Generating an explanation…');
+      try {
+        const result = await api(`${projectPath}/papers/${paper.id}/explanation`, {method: 'POST'});
+        paper.classificationExplanation = result.explanation;
+        show(result.explanation);
+        button.textContent = 'Refresh explanation';
+      } catch (error) {
+        if (error.status === 409) {
+          await refresh();
+          return;
+        }
+        show(`Could not generate an explanation. ${error.message}`);
+        button.textContent = 'Retry';
+      } finally { button.disabled = false; }
+    });
+  }
+  function showSearch(history, savedQueries) {
     searchBody.replaceChildren();
     const latest = history[0];
     setBusy(latest?.status === 'SEARCHING');
     element('p', 'OpenAlex searches your research question with the saved year range. Keywords remain project notes.', searchBody, 'field-help');
     element('span', 'Search query', searchBody, 'query-label');
     element('p', latest?.parameters.query ?? project.researchQuestion, searchBody, 'search-query');
+    const queryControls = element('div', '', searchBody, 'query-controls');
+    const suggest = element('button', 'Suggest related queries', queryControls, 'secondary');
+    suggest.disabled = busy;
+    suggest.addEventListener('click', async () => {
+      suggest.disabled = true;
+      try { await api(`${projectPath}/queries`, {method: 'POST'}); await refresh(); }
+      catch (error) { showError(error); suggest.disabled = false; }
+    });
+    if (savedQueries?.length) {
+      element('span', 'Optional queries to include', queryControls, 'query-label');
+      for (const saved of savedQueries) {
+        const label = element('label', '', queryControls, 'query-option');
+        const checkbox = element('input', '', label);
+        checkbox.type = 'checkbox';
+        checkbox.checked = saved.enabled;
+        checkbox.disabled = busy;
+        checkbox.addEventListener('change', async () => {
+          checkbox.disabled = true;
+          try { await api(`${projectPath}/queries/${saved.id}?enabled=${checkbox.checked}`, {method: 'PATCH'}); }
+          catch (error) { checkbox.checked = saved.enabled; showError(error); }
+          checkbox.disabled = busy;
+        });
+        element('span', saved.query, label);
+      }
+    }
+    if (latest?.generatedQueries?.length) {
+      element('span', 'Queries used for this search', searchBody, 'query-label');
+      const queries = element('ul', '', searchBody, 'generated-queries');
+      for (const query of latest.generatedQueries) element('li', query, queries);
+    }
     if (!latest) {
-      element('p', 'No search has been run yet.', searchBody, 'muted');
+      element('p', pendingSearch ? 'Searching scholarly papers…' : 'No search has been run yet.', searchBody, 'search-status');
       return;
     }
     element('p', busy ? (SEARCH_STAGES[latest.stage] || 'Searching scholarly papers…')
@@ -571,29 +698,46 @@ function literature(project, left, aside, actions, remove) {
     }
   }
   async function refresh() {
+    const version = ++refreshVersion;
     clearTimeout(timer);
     const history = await api(`${projectPath}/searches`);
-    showSearch(history);
+    if (version !== refreshVersion) return;
+      const queries = await api(`${projectPath}/queries`);
+      showSearch(history, queries);
     const latestId = history[0]?.id ?? null;
     if (!busy || displayedRunId === undefined) {
       const [papers, subtopics] = await Promise.all([
         api(`${projectPath}/papers`),
         api(`${projectPath}/subtopics`),
       ]);
+      if (version !== refreshVersion) return;
       showPapers(papers, history, subtopics);
       displayedRunId = latestId;
     }
-    if (busy) timer = setTimeout(() => refresh().catch(showError), 2000);
+    if (busy) schedulePoll();
+  }
+  function schedulePoll() {
+    clearTimeout(timer);
+    timer = setTimeout(() => refresh().catch(error => {
+      showError(error);
+      if (busy) schedulePoll();
+    }), 500);
   }
   async function runSearch(force) {
     clearTimeout(timer);
+    ++refreshVersion;
+    pendingSearch = true;
     setBusy(true);
+    schedulePoll();
     errorBox.hidden = true;
     searchBody.replaceChildren();
-    element('p', 'Searching OpenAlex. This can take up to a minute…', searchBody, 'search-status');
+    element('p', 'Searching OpenAlex and organizing papers…', searchBody, 'search-status');
     try {
       await api(`${projectPath}/search${force ? '?force=true' : ''}`, {method: 'POST'});
     } catch (error) {
+      ++refreshVersion;
+      pendingSearch = false;
+      clearTimeout(timer);
       if (error.code === 'MANUAL_EDITS_PRESENT') {
         setBusy(false);
         searchBody.replaceChildren();
@@ -603,7 +747,11 @@ function literature(project, left, aside, actions, remove) {
       }
       showError(error);
     }
+    ++refreshVersion;
+    pendingSearch = false;
+    clearTimeout(timer);
     setBusy(false);
+    closeDrawer();
     try { await refresh(); } catch (error) { showError(error); }
   }
   searchButton.addEventListener('click', () => runSearch(false));
@@ -615,7 +763,7 @@ function literature(project, left, aside, actions, remove) {
 }
 async function render() {
   const parts = location.pathname.split('/').filter(Boolean);
-  const currentNav = document.querySelector(`[data-nav="${parts[1] === 'new' ? 'new' : 'library'}"]`);
+  const currentNav = document.querySelector(`[data-nav="${parts[1] === 'new' ? 'new' : parts[1] === 'settings' ? 'settings' : 'library'}"]`);
   currentNav.setAttribute('aria-current', 'page');
   if (!parts.length) {
     const projects = await api();
@@ -624,6 +772,9 @@ async function render() {
   } else if (parts[1] === 'new') {
     content.replaceChildren();
     projectForm();
+  } else if (parts[1] === 'settings') {
+    content.replaceChildren();
+    settings();
   } else {
     const project = await api(`/${parts[1]}`);
     content.replaceChildren();

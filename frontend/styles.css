@@ -158,9 +158,17 @@ textarea { resize: vertical; min-height: 120px; }
 .paper-doi { color: #7a86a0; font-size: 11px; margin: 8px 0; overflow-wrap: anywhere; }
 .query-label { display: block; font-size: 11px; color: var(--muted); margin-top: 15px; }
 .search-query { overflow-wrap: anywhere; white-space: pre-wrap; font-size: 12px; padding: 10px; background: #f5f8fc; border-radius: 6px; margin: 5px 0 14px; }
+.generated-queries { margin: 5px 0 14px; padding-left: 24px; color: #52627a; font-size: 12px; }
+.generated-queries li + li { margin-top: 4px; }
+.query-controls { display: grid; gap: 7px; margin: 8px 0 14px; }
+.query-option { display: flex; gap: 7px; align-items: flex-start; font-size: 12px; color: #52627a; }
 .search-status { color: #4265c3; font-size: 12px; }
 .search-failure { color: #a34f59; font-size: 12px; }
 .cluster-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 22px; }
+.subtopic-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 18px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; background: #fafbfe; }
+.subtopic-actions-label { color: var(--muted); font-size: 12px; font-weight: 500; }
+.subtopic-actions button { padding: 6px 12px; font-size: 12px; }
+.paper-list { border-top: 1px solid var(--border); padding-top: 2px; }
 .cluster-tab { max-width: 100%; background: none; border: 1px solid var(--border); font: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; padding: 6px 13px; border-radius: 999px; color: var(--muted); }
 .cluster-tab-name { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cluster-tab:hover { border-color: var(--blue); color: #111936; }
@@ -174,6 +182,9 @@ textarea { resize: vertical; min-height: 120px; }
 .search-history-item p { margin: 4px 0; overflow-wrap: anywhere; }
 .research-summary { font-size: 12px; color: #4265c3; margin: 2px 0 16px; font-weight: 500; }
 .paper-row[role="button"] { cursor: pointer; }
+.card-explanation { margin-top: 10px; padding: 9px 11px; background: #f7f9fc; border-radius: 7px; }
+.card-explanation-body { color: var(--muted); font-size: 12px; line-height: 1.55; margin: 0 0 7px; }
+.card-explanation-button { padding: 4px 9px; font-size: 11px; }
 .paper-row[role="button"]:hover h3 { color: var(--blue); }
 .drawer { position: fixed; inset: 0; z-index: 40; display: flex; justify-content: flex-end; }
 .drawer-backdrop { position: absolute; inset: 0; background: #10193640; }

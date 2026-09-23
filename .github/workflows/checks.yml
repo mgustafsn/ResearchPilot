@@ -22,6 +22,7 @@ jobs:
         with:
           version: '0.12.12'
       - run: uv sync --locked --extra dev --python 3.14
+      - run: uv run playwright install --with-deps chromium
       - run: uv run pytest
       - run: uv run pytest
         env:
