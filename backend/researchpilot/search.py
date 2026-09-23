@@ -112,6 +112,9 @@ class SearchService:
             latest = expire_search(project, repository)
             if latest and latest.status == "SEARCHING":
                 raise SearchConflict("A search is already running for this project.")
+            saved = repository.queries(project.id)
+            if saved and not any(item.enabled for item in saved):
+                raise NoEnabledQueries("Enable at least one search query.")
             if not force and repository.has_manual_edits(project.id):
                 raise ManualEditsPresent(
                     "This project has manual changes. Run the search again to replace them."
@@ -147,21 +150,25 @@ class SearchService:
         with Session(self.engine) as session:
             return SearchRepository(session).existing_embeddings(hashes, model, provider, dimension)
 
-    def _selected_queries(self, project_id, question):
+    def _saved_queries(self, project_id):
         with Session(self.engine) as session:
-            saved = SearchRepository(session).queries(project_id)
-        if not saved:
-            return None
-        return [question, *(item.query for item in saved if item.enabled)]
+            project = self._project(session, project_id)
+            return SearchRepository(session).queries(project_id), project.title
+
+    def _save_generated_queries(self, project_id, queries):
+        with Session(self.engine) as session, session.begin():
+            repository = SearchRepository(session)
+            repository.replace_generated_queries(project_id, queries)
+            return repository.queries(project_id)
 
     async def expand_project_queries(self, project_id):
         with Session(self.engine) as session:
             project = self._editable(session, project_id)
-            question, keywords = project.researchQuestion, project.keywords
-        expansion = await self._expand_text(question, keywords)
+            question, keywords, title = project.researchQuestion, project.keywords, project.title
+        queries = await self._expand_text(question, keywords, title)
         with Session(self.engine) as session, session.begin():
             self._editable(session, project_id)
-            SearchRepository(session).replace_generated_queries(project_id, expansion[1:])
+            SearchRepository(session).replace_generated_queries(project_id, queries)
             return SearchRepository(session).queries(project_id)
 
     def project_queries(self, project_id):
@@ -283,32 +290,27 @@ class SearchService:
         )
 
     async def _expand_queries(self, run):
-        selected = await asyncio.to_thread(
-            self._selected_queries, run.projectId, run.researchQuestion
-        )
-        if selected is not None:
-            logger.info("Search using saved queries run=%s selected=%s", run.id, len(selected))
-            return selected
-        expanded = await self._expand_text(run.researchQuestion, run.keywords)
-        logger.info("Search generated queries run=%s selected=%s", run.id, len(expanded))
-        return expanded
+        saved, title = await asyncio.to_thread(self._saved_queries, run.projectId)
+        if not saved:
+            generated = await self._expand_text(run.researchQuestion, run.keywords, title)
+            saved = await asyncio.to_thread(self._save_generated_queries, run.projectId, generated)
+            logger.info("Search generated queries run=%s count=%s", run.id, len(saved))
+        selected = [item.query for item in saved if item.enabled]
+        logger.info("Search using saved queries run=%s selected=%s", run.id, len(selected))
+        return selected
 
-    async def _expand_text(self, question, keywords):
+    async def _expand_text(self, question, keywords, title):
+        """Short keyword queries for the description; never the description itself."""
+        fallback = list(keywords) or [title]
         expand = getattr(self.llm_provider, "expand_queries", None)
         if expand is None:
-            return [question]
+            return fallback
         try:
             expansion = await asyncio.wait_for(expand(question, keywords), NAMING_TIMEOUT_SECONDS)
         except (TimeoutError, ProviderError, TypeError, AttributeError):
-            logger.warning("Query expansion unavailable; using original query")
-            return [question]
-        queries = [question, *expansion.queries]
-        seen = set()
-        return [
-            query
-            for query in queries
-            if not (query.casefold() in seen or seen.add(query.casefold()))
-        ]
+            logger.warning("Query expansion unavailable; using keywords or project title")
+            return fallback
+        return expansion.queries or fallback
 
     async def _retrieve(self, run, queries):
         per_query = max(1, (run.parameters.maxPaperCount + len(queries) - 1) // len(queries))

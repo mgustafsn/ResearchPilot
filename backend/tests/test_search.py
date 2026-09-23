@@ -85,6 +85,7 @@ class RecordingLlmProvider:
         self.explain_calls = []
         self.explain_error = None
         self.expansion = []
+        self.expansion_error = None
 
     async def name_cluster(self, question, papers):
         self.calls.append((question, list(papers)))
@@ -96,6 +97,8 @@ class RecordingLlmProvider:
         )
 
     async def expand_queries(self, question, keywords):
+        if self.expansion_error:
+            raise self.expansion_error
         return QueryExpansion(queries=self.expansion)
 
     async def explain_paper(self, question, subtopic, paper):
@@ -163,19 +166,23 @@ def test_search_persists_real_metadata_and_snapshot(search_client, engine):
     assert 0 <= papers[0]["relevanceScore"] <= 1
 
 
-def test_query_expansion_is_persisted_and_retrieves_each_query(search_client_named):
+def _retrieved(provider):
+    return [parameters.query for parameters in provider.calls]
+
+
+def test_search_uses_generated_queries_never_the_description(search_client_named):
     client, provider, _, llm, url = search_client_named
-    llm.expansion = ["generative AI software development", "large language models"]
+    llm.expansion = ["generative AI software development", "LLM code generation"]
     run = client.post(url + "/search").json()
-    assert run["generatedQueries"] == [
-        DATA["researchQuestion"],
-        "generative AI software development",
+    # Saved queries are listed case-insensitively alphabetical.
+    assert run["generatedQueries"] == ["generative AI software development", "LLM code generation"]
+    assert _retrieved(provider) == run["generatedQueries"]
+    assert DATA["researchQuestion"] not in _retrieved(provider)
+    saved = client.get(url + "/queries").json()
+    assert [(q["query"], q["userAdded"]) for q in saved] == [
+        ("generative AI software development", False),
+        ("LLM code generation", False),
     ]
-    assert [parameters.query for parameters in provider.calls] == [
-        DATA["researchQuestion"],
-        "generative AI software development",
-    ]
-    assert client.get(url + "/searches").json()[0]["generatedQueries"] == run["generatedQueries"]
 
 
 def _add(client, url, text):
@@ -252,6 +259,20 @@ def test_query_edits_are_blocked_during_a_search(search_client_named):
     assert _add(client, url, "another").status_code == 409
     assert client.patch(f"{url}/queries/{query['id']}", json={"enabled": False}).status_code == 409
     assert client.delete(f"{url}/queries/{query['id']}").status_code == 409
+
+
+def test_search_with_no_enabled_queries_is_rejected(search_client_named):
+    client, provider, _, _, url = search_client_named
+    first = _add(client, url, "terraform").json()
+    second = _add(client, url, "kubernetes").json()
+    client.patch(f"{url}/queries/{first['id']}", json={"enabled": False})
+    client.patch(f"{url}/queries/{second['id']}", json={"enabled": False})
+    response = client.post(url + "/search")
+    assert response.status_code == 422
+    assert response.json()["code"] == "NO_ENABLED_QUERIES"
+    assert provider.calls == []
+    assert client.get(url + "/searches").json() == []
+    assert client.get(url).json()["status"] != "SEARCHING"
 
 
 def test_repeated_search_and_shared_papers(search_client, engine):
