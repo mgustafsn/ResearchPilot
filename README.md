@@ -59,12 +59,12 @@ deduplication, embedding-based relevance scoring and clustering, structured
 LLM subtopic naming, a research map, paper details, on-demand explanations, manual
 organization, and provider-derived open-access labels and links.
 
-The saved research question is always searched, and the LLM may add up to five grounded
-related queries. Every query used is saved with the search run and shown in the search
-panel. Retrieval divides the paper limit across the queries before deduplication and
-ranking. If query expansion fails, the original question is used. Keywords influence
-expansion and ranking. Relevance is the cosine similarity between the embedded research
-question (plus keywords) and each paper's title/abstract embedding, calibrated linearly
+The research description is never searched directly. The LLM turns it and the keywords
+into 3–6 short keyword queries; if that fails, keywords (or the project name) are used.
+Every query used is saved with the search run and shown in the search panel. Retrieval
+divides the paper limit across the enabled queries before deduplication and ranking.
+Relevance is the cosine similarity between the embedded research description (plus
+keywords) and each paper's title/abstract embedding, calibrated linearly
 so cosine 0.25 is 0% and 0.60 is 100%. Stopword-filtered lexical overlap only breaks ties.
 Papers below 40% are filtered before clustering; the count is shown in the search
 summary.
@@ -126,8 +126,9 @@ provider timeouts and the 30-second outer deadline return 504 with code
 - `/api/projects/{id}/search`: POST; optional `force=true` confirms replacement.
 - `/api/projects/{id}/searches`: GET latest 20 attempts and progress.
 - `/api/projects/{id}/papers` and `/subtopics`: GET saved results.
-- `/api/projects/{id}/queries`: GET saved query suggestions or POST to regenerate them;
-  PATCH `/{queryId}?enabled=true|false` controls inclusion in the next search.
+- `/api/projects/{id}/queries`: GET the saved list; POST to regenerate suggestions
+  (keeps user queries); POST `/custom` to add one. PATCH `/{queryId}` with a JSON body
+  (`query` and/or `enabled`) edits it; DELETE `/{queryId}` removes it.
 - `/api/projects/{id}/papers/{paperId}`: PATCH `clusterId` and/or `isRelevant`.
 - `/api/projects/{id}/subtopics/{clusterId}`: PATCH `name` and optional `description`.
 - `/api/projects/{id}/subtopics`: POST to create; DELETE a cluster or POST

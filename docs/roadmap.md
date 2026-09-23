@@ -14,6 +14,7 @@ sequence number. Each feature gets a branch `feat/<name>`, a note in
 | OpenAlex retrieval | Fetch papers from OpenAlex and normalize their scholarly metadata | [openalex-retrieval](features/openalex-retrieval.md) |
 | Query expansion | The LLM proposes related queries; the user can toggle them; retrieval runs every query | [query-expansion](features/query-expansion.md) |
 | Open access | Open-access status, the open-access filter, and publication/full-text links | [open-access](features/open-access.md) |
+| Description-driven queries | Search only short keyword queries, never the long research description; a user-editable query list | [description-driven-queries](features/description-driven-queries.md) |
 
 ### Relevance
 
@@ -53,7 +54,6 @@ required before sign-off.
 
 | Feature | What it does | Design |
 | --- | --- | --- |
-| Description-driven queries | Search only short keyword queries, never the long research description; a user-editable query list | [spec](superpowers/specs/2026-09-23-description-driven-queries-design.md) |
 | Acceptance test and logging | Automate the §38 end-to-end scenario; audit logging against §29 | — |
 
 Requirements are not reduced to fit the demo. Institutional access, exports/Zotero, PDF

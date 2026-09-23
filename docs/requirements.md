@@ -50,7 +50,7 @@ The architecture should also support future institutional library authentication
 The user should be able to create a research project by entering:
 
 * Project name
-* Research topic or research question
+* Research description (what the user wants to understand; not searched directly)
 * Optional keywords
 * Optional year range
 * Maximum number of papers to retrieve
@@ -82,7 +82,7 @@ The backend should execute the following pipeline:
 ```text
 User research topic
         ↓
-LLM generates search terms / related queries
+LLM generates short search queries from the research description
         ↓
 Scholarly APIs queried
         ↓
@@ -195,7 +195,7 @@ Generated queries might include:
 
 Generated queries must remain visible in the project so the search process is transparent.
 
-The user should eventually be able to enable/disable individual generated queries.
+The research description itself is not sent to scholarly providers. The user can enable, disable, edit, add, and delete queries; queries the user wrote or edited are never replaced by regeneration. If query generation fails, the project's keywords (or, without keywords, the project name) are used as queries.
 
 ---
 
@@ -987,7 +987,7 @@ The MVP is complete when the following scenario works end-to-end:
 
 1. User creates a project.
 
-2. User enters:
+2. User enters a research description:
 
    > Large language models in software engineering
 

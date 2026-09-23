@@ -539,6 +539,49 @@ def test_search_uses_generated_queries_never_the_description(search_client_named
         ("generative AI software development", False),
         ("LLM code generation", False),
     ]
+
+
+def test_disabled_queries_are_not_retrieved(search_client_named):
+    client, provider, _, llm, url = search_client_named
+    llm.expansion = ["alternate query", "second query"]
+    first = client.post(url + "/queries").json()[0]
+    client.patch(f"{url}/queries/{first['id']}", json={"enabled": False})
+    client.post(url + "/search")
+    assert _retrieved(provider) == ["second query"]
+
+
+def test_search_with_no_enabled_query_is_rejected_without_a_run(search_client_named):
+    client, provider, _, llm, url = search_client_named
+    llm.expansion = ["only query"]
+    only = client.post(url + "/queries").json()[0]
+    client.patch(f"{url}/queries/{only['id']}", json={"enabled": False})
+    response = client.post(url + "/search")
+    assert response.status_code == 422
+    assert response.json()["code"] == "NO_ENABLED_QUERIES"
+    assert provider.calls == []
+    assert client.get(url + "/searches").json() == []
+
+
+def test_empty_expansion_falls_back_to_keywords(search_client_named):
+    client, provider, _, llm, url = search_client_named
+    llm.expansion = []
+    client.post(url + "/search")
+    assert _retrieved(provider) == DATA["keywords"]
+
+
+def test_expansion_failure_falls_back_to_keywords(search_client_named):
+    client, provider, _, llm, url = search_client_named
+    llm.expansion_error = ProviderError("LLM_UNAVAILABLE")
+    client.post(url + "/search")
+    assert _retrieved(provider) == DATA["keywords"]
+
+
+def test_no_keywords_falls_back_to_project_title(search_client_named):
+    client, provider, _, llm, url = search_client_named
+    client.put(url, json={**DATA, "keywords": []})
+    llm.expansion = []
+    client.post(url + "/search")
+    assert _retrieved(provider) == [DATA["title"]]
 ```
 
 - [ ] **Step 2: Run them and confirm they fail**
