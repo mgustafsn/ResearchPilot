@@ -7,6 +7,8 @@ from fakes import RecordingEmbeddingProvider
 
 BUDGET_FACTOR = 3
 SIX_GROUPS = ("alpha", "bravo", "charlie", "delta", "echo", "foxtrot")
+OPENAI_KEY = "sk-nfr-openai-7f3c9e"
+OPENALEX_KEY = "oa-nfr-openalex-4b2d81"
 
 
 def check_budget(record_property, nfr_id, target_s, measured_s):
