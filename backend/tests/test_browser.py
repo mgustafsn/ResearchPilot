@@ -1,6 +1,7 @@
 """Real Chromium against the app with deterministic, local providers."""
 
 import asyncio
+import re
 import socket
 import threading
 import time
@@ -103,6 +104,8 @@ def test_empty_categories_filters_uncategorized_and_retry(browser_app):
     page.locator(".subtopic-menu summary").click()
     expect(page.get_by_role("button", name="Rename subtopic")).to_be_enabled()
     page.get_by_role("button", name="Open access only", exact=True).click()
+    # The selected subtopic survives re-renders, so return to All explicitly.
+    page.locator(".cluster-tab").first.click()
     page.locator(".paper-row").first.click()
     options = page.locator(".drawer-organize select option")
     assert "Uncategorized" in options.all_text_contents()
@@ -177,3 +180,18 @@ def test_query_editor_and_description_label(browser_app):
     expect(page.get_by_role("button", name="Find papers", exact=True)).to_be_enabled()
     queries = page.request.get(url + "/queries").json()
     assert [(q["query"], q["enabled"]) for q in queries] == [("terraform provisioning", True)]
+
+
+def test_selected_subtopic_survives_a_refresh(browser_app):
+    page, url, _, _, _ = browser_app
+    page.request.post(url + "/search")
+    page.reload()
+    tab = page.locator(".cluster-tab").nth(1)
+    tab.click()
+    expect(page.locator(".subtopic-menu summary")).to_be_visible()
+    # Any full re-render (reference saves, polling, edits) must keep the chosen subtopic.
+    previous = page.locator(".paper-list").element_handle()
+    page.evaluate("window.dispatchEvent(new Event('references-changed'))")
+    page.wait_for_function("list => !list.isConnected", arg=previous)
+    expect(page.locator(".cluster-tab").nth(1)).to_have_class(re.compile(r"\bactive\b"))
+    expect(page.locator(".subtopic-menu summary")).to_be_visible()

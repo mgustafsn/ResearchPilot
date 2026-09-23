@@ -370,7 +370,8 @@ function renderReferenceLibrary(project, container) {
       await refresh();
     } catch (error) { showError(error); }
   });
-  async function refresh() {
+  // The initial load must not notify: the project page's own first refresh waits for it.
+  async function refresh({notify = true} = {}) {
     const references = await api(projectPath);
     savedIds.clear();
     savedDois.clear();
@@ -408,7 +409,7 @@ function renderReferenceLibrary(project, container) {
           const notes = window.prompt('Notes', reference.notes);
           if (notes === null) return;
           api(`${projectPath}/${reference.id}`, {method: 'PATCH', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({number: Number(number), notes})}).then(refresh).catch(showError);
+            body: JSON.stringify({number: Number(number), notes})}).then(() => refresh()).catch(showError);
         }
       });
       element('button', 'Remove', actions, 'secondary').addEventListener('click', async () => {
@@ -417,9 +418,9 @@ function renderReferenceLibrary(project, container) {
         catch (error) { showError(error); }
       });
     }
-    window.dispatchEvent(new Event('references-changed'));
+    if (notify) window.dispatchEvent(new Event('references-changed'));
   }
-  const ready = refresh().catch(showError);
+  const ready = refresh({notify: false}).catch(showError);
   return {refresh, ready, isSaved: paper => savedIds.has(paper.id) ||
     Boolean(paper.doi && savedDois.has(doiKey(paper.doi)))};
 }
@@ -442,6 +443,8 @@ function literature(project, left, aside, actions, remove, referenceLibrary) {
   let displayedRunId;
   let showSetAside = false;
   let openAccessOnly = false;
+  // Selected cluster tab, kept across re-renders: 'all' or a group's clusterId (null = Uncategorized).
+  let activeGroup = 'all';
   const projectPath = `/${project.id}`;
   function patchAndRefresh(path, body) {
     if (busy) return Promise.resolve();
@@ -676,6 +679,7 @@ function literature(project, left, aside, actions, remove, referenceLibrary) {
     });
     function select(index) {
       active = index;
+      activeGroup = index === null ? 'all' : groups[index].id;
       allButton.classList.toggle('active', index === null);
       buttons.forEach((button, i) => button.classList.toggle('active', i === index));
       detail.replaceChildren();
@@ -684,7 +688,8 @@ function literature(project, left, aside, actions, remove, referenceLibrary) {
       if (group && group.topic) subtopicHeader(group.topic, detail, subtopics || []);
       for (const paper of group ? group.members : visible) paperRow(paper, list, named, clusterOptions);
     }
-    select(null);
+    const restored = activeGroup === 'all' ? -1 : groups.findIndex(group => group.id === activeGroup);
+    select(restored >= 0 ? restored : null);
   }
   function subtopicHeader(topic, wrap, topics) {
     wrap.replaceChildren();
