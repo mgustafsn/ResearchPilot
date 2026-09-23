@@ -41,7 +41,7 @@ class ProjectService:
         for key, value in data.model_dump().items():
             setattr(row, key, value)
         if changed_query_context:
-            SearchRepository(self.repository.session).clear_queries(project_id)
+            SearchRepository(self.repository.session).clear_generated_queries(project_id)
         row.updatedAt = datetime.now(timezone.utc)
         return Project.model_validate(self.repository.save(row))
 

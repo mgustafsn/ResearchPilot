@@ -32,6 +32,7 @@ from .papers import (
 )
 from .persistence import ProjectRepository
 from .search_persistence import (
+    SAVED_QUERIES_MAX,
     ExplanationUnavailable,
     ManualEditsPresent,
     SearchConflict,
@@ -41,6 +42,19 @@ from .search_persistence import (
     expire_search,
 )
 from .service import ProjectNotFound
+
+
+class InvalidQuery(Exception):
+    """A query change that breaks the saved-query rules (e.g. the per-project cap)."""
+
+
+class DuplicateQuery(Exception):
+    """The query text already exists in the project's list (case-insensitive)."""
+
+
+class NoEnabledQueries(Exception):
+    """Saved queries exist but every one is disabled, so there is nothing to search."""
+
 
 logger = logging.getLogger(__name__)
 SEARCH_TIMEOUT_SECONDS = 60
@@ -147,7 +161,7 @@ class SearchService:
         expansion = await self._expand_text(question, keywords)
         with Session(self.engine) as session, session.begin():
             self._editable(session, project_id)
-            SearchRepository(session).replace_queries(project_id, expansion[1:])
+            SearchRepository(session).replace_generated_queries(project_id, expansion[1:])
             return SearchRepository(session).queries(project_id)
 
     def project_queries(self, project_id):
@@ -155,13 +169,38 @@ class SearchService:
             self._project(session, project_id)
             return SearchRepository(session).queries(project_id)
 
-    def set_query_enabled(self, project_id, query_id, enabled):
+    def add_query(self, project_id, text):
         with Session(self.engine) as session, session.begin():
             self._editable(session, project_id)
-            updated = SearchRepository(session).set_query_enabled(project_id, query_id, enabled)
+            repository = SearchRepository(session)
+            saved = repository.queries(project_id)
+            if any(item.query.casefold() == text.casefold() for item in saved):
+                raise DuplicateQuery("That query is already in the list.")
+            if len(saved) >= SAVED_QUERIES_MAX:
+                raise InvalidQuery(
+                    f"A project can have at most {SAVED_QUERIES_MAX} search queries."
+                )
+            return repository.add_query(project_id, text)
+
+    def update_query(self, project_id, query_id, patch):
+        with Session(self.engine) as session, session.begin():
+            self._editable(session, project_id)
+            repository = SearchRepository(session)
+            if patch.query is not None and any(
+                item.id != query_id and item.query.casefold() == patch.query.casefold()
+                for item in repository.queries(project_id)
+            ):
+                raise DuplicateQuery("That query is already in the list.")
+            updated = repository.update_query(project_id, query_id, patch.query, patch.enabled)
             if updated is None:
                 raise ProjectNotFound()
             return updated
+
+    def delete_query(self, project_id, query_id):
+        with Session(self.engine) as session, session.begin():
+            self._editable(session, project_id)
+            if not SearchRepository(session).delete_query(project_id, query_id):
+                raise ProjectNotFound()
 
     def _set_stage(self, run_id, stage):
         """Record pipeline progress for a running search; a no-op once superseded."""

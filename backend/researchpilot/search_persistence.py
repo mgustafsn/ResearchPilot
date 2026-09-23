@@ -85,6 +85,7 @@ class SearchQueryRow(Base):
     )
     query: Mapped[str] = mapped_column(Text)
     enabled: Mapped[bool] = mapped_column(default=True)
+    userAdded: Mapped[bool] = mapped_column(default=False)
 
 
 class SubtopicRow(Base):
@@ -116,6 +117,9 @@ class ProjectPaperRow(Base):
     userModified: Mapped[bool] = mapped_column(default=False)
 
 
+SAVED_QUERIES_MAX = 10
+
+
 class SearchRepository:
     def __init__(self, session):
         self.session = session
@@ -145,32 +149,68 @@ class SearchRepository:
         )
 
     def queries(self, project_id):
-        return [
-            SearchQuery.model_validate(row)
-            for row in self.session.scalars(
-                select(SearchQueryRow)
-                .where(SearchQueryRow.projectId == project_id)
-                .order_by(SearchQueryRow.query)
-            )
-        ]
-
-    def replace_queries(self, project_id, queries):
-        self.session.execute(delete(SearchQueryRow).where(SearchQueryRow.projectId == project_id))
-        self.session.add_all(
-            SearchQueryRow(projectId=project_id, id=uuid4(), query=query, enabled=True)
-            for query in queries
+        rows = self.session.scalars(
+            select(SearchQueryRow).where(SearchQueryRow.projectId == project_id)
+        )
+        return sorted(
+            (SearchQuery.model_validate(row) for row in rows),
+            key=lambda item: (item.query.casefold(), str(item.id)),
         )
 
-    def clear_queries(self, project_id):
-        self.session.execute(delete(SearchQueryRow).where(SearchQueryRow.projectId == project_id))
+    def replace_generated_queries(self, project_id, queries):
+        """Swap generated suggestions; the user's own queries are kept and never duplicated."""
+        self.clear_generated_queries(project_id)
+        self.session.flush()
+        kept = {item.query.casefold() for item in self.queries(project_id)}
+        rows = []
+        for query in queries:
+            if len(kept) >= SAVED_QUERIES_MAX:
+                break
+            if query.casefold() in kept:
+                continue
+            kept.add(query.casefold())
+            rows.append(
+                SearchQueryRow(
+                    projectId=project_id, id=uuid4(), query=query, enabled=True, userAdded=False
+                )
+            )
+        self.session.add_all(rows)
+        self.session.flush()
 
-    def set_query_enabled(self, project_id, query_id, enabled):
+    def clear_generated_queries(self, project_id):
+        self.session.execute(
+            delete(SearchQueryRow).where(
+                SearchQueryRow.projectId == project_id, SearchQueryRow.userAdded.is_(False)
+            )
+        )
+
+    def add_query(self, project_id, text):
+        row = SearchQueryRow(
+            projectId=project_id, id=uuid4(), query=text, enabled=True, userAdded=True
+        )
+        self.session.add(row)
+        self.session.flush()
+        return SearchQuery.model_validate(row)
+
+    def update_query(self, project_id, query_id, text=None, enabled=None):
         row = self.session.get(SearchQueryRow, query_id)
         if row is None or row.projectId != project_id:
             return None
-        row.enabled = enabled
+        if text is not None and text != row.query:
+            row.query = text
+            row.userAdded = True
+        if enabled is not None:
+            row.enabled = enabled
         self.session.flush()
         return SearchQuery.model_validate(row)
+
+    def delete_query(self, project_id, query_id):
+        row = self.session.get(SearchQueryRow, query_id)
+        if row is None or row.projectId != project_id:
+            return False
+        self.session.delete(row)
+        self.session.flush()
+        return True
 
     def papers(self, project_id):
         return [

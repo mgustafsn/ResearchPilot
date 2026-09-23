@@ -15,6 +15,7 @@ from pydantic import (
 class ProjectInput(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     title: str = Field(min_length=1, max_length=200)
+    # Shown as "Research description": LLM context and relevance anchor, never searched.
     researchQuestion: str = Field(min_length=1, max_length=5000)
     keywords: list[str] = Field(default_factory=list, max_length=30)
     yearFrom: StrictInt | None = Field(default=None, ge=1, le=9999)
@@ -53,6 +54,31 @@ class SubtopicInput(SubtopicPatch):
 class SubtopicMerge(BaseModel):
     model_config = ConfigDict(extra="forbid")
     targetClusterId: StrictInt = Field(ge=0)
+
+
+def _collapse_whitespace(value):
+    return " ".join(value.split()) if isinstance(value, str) else value
+
+
+class QueryInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    query: str = Field(min_length=1, max_length=160)
+
+    _collapse = field_validator("query", mode="before")(_collapse_whitespace)
+
+
+class QueryPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    query: str | None = Field(default=None, min_length=1, max_length=160)
+    enabled: StrictBool | None = None
+
+    _collapse = field_validator("query", mode="before")(_collapse_whitespace)
+
+    @model_validator(mode="after")
+    def at_least_one_field(self):
+        if self.query is None and self.enabled is None:
+            raise ValueError("Provide query and/or enabled")
+        return self
 
 
 class PaperPatch(BaseModel):

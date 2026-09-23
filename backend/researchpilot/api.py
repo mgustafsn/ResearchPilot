@@ -16,6 +16,8 @@ from .domain import (
     PaperPatch,
     Project,
     ProjectInput,
+    QueryInput,
+    QueryPatch,
     SubtopicInput,
     SubtopicMerge,
     SubtopicPatch,
@@ -25,7 +27,7 @@ from .service import ProjectNotFound, ProjectService
 from .papers import ProjectPaper, ProviderError, SearchQuery, SearchRun, Subtopic
 from .providers.openai import OpenAIEmbeddingProvider, OpenAILlmProvider
 from .providers.openalex import OpenAlexProvider
-from .search import SearchService
+from .search import DuplicateQuery, InvalidQuery, NoEnabledQueries, SearchService
 from .search_persistence import (
     ExplanationUnavailable,
     ManualEditsPresent,
@@ -111,6 +113,20 @@ def create_app(engine=None, provider=None, embedding_provider=None, llm_provider
     async def unknown_cluster(request, exc):
         return JSONResponse(status_code=422, content={"detail": str(exc)})
 
+    @app.exception_handler(InvalidQuery)
+    async def invalid_query(request, exc):
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+    @app.exception_handler(DuplicateQuery)
+    async def duplicate_query(request, exc):
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+    @app.exception_handler(NoEnabledQueries)
+    async def no_enabled_queries(request, exc):
+        return JSONResponse(
+            status_code=422, content={"detail": str(exc), "code": "NO_ENABLED_QUERIES"}
+        )
+
     @app.exception_handler(ManualEditsPresent)
     async def manual_edits_present(request, exc):
         return JSONResponse(
@@ -163,9 +179,20 @@ def create_app(engine=None, provider=None, embedding_provider=None, llm_provider
     async def expand_project_queries(project_id: UUID):
         return await app.state.search.expand_project_queries(project_id)
 
+    @app.post(
+        "/api/projects/{project_id}/queries/custom", response_model=SearchQuery, status_code=201
+    )
+    def add_query(project_id: UUID, body: QueryInput):
+        return app.state.search.add_query(project_id, body.query)
+
     @app.patch("/api/projects/{project_id}/queries/{query_id}", response_model=SearchQuery)
-    def set_query_enabled(project_id: UUID, query_id: UUID, enabled: bool):
-        return app.state.search.set_query_enabled(project_id, query_id, enabled)
+    def update_query(project_id: UUID, query_id: UUID, patch: QueryPatch):
+        return app.state.search.update_query(project_id, query_id, patch)
+
+    @app.delete("/api/projects/{project_id}/queries/{query_id}", status_code=204)
+    def delete_query(project_id: UUID, query_id: UUID):
+        app.state.search.delete_query(project_id, query_id)
+        return Response(status_code=204)
 
     @app.post("/api/projects/{project_id}/papers/{paper_id}/explanation")
     async def paper_explanation(project_id: UUID, paper_id: UUID):

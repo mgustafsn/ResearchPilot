@@ -178,27 +178,80 @@ def test_query_expansion_is_persisted_and_retrieves_each_query(search_client_nam
     assert client.get(url + "/searches").json()[0]["generatedQueries"] == run["generatedQueries"]
 
 
-def test_disabled_saved_query_is_not_regenerated_or_retrieved(search_client_named):
-    client, provider, _, llm, url = search_client_named
-    llm.expansion = ["alternate query"]
-    suggestions = client.post(url + "/queries").json()
-    assert len(suggestions) == 1
-    assert (
-        client.patch(f"{url}/queries/{suggestions[0]['id']}?enabled=false", json={}).status_code
-        == 200
-    )
-    client.post(url + "/search")
-    assert [parameters.query for parameters in provider.calls] == [DATA["researchQuestion"]]
+def _add(client, url, text):
+    return client.post(url + "/queries/custom", json={"query": text})
 
 
-def test_project_question_edit_clears_saved_queries(search_client_named):
-    client, provider, _, llm, url = search_client_named
+def test_user_can_add_edit_toggle_and_delete_queries(search_client_named):
+    client, _, _, _, url = search_client_named
+    added = _add(client, url, "  terraform   provisioning ")
+    assert added.status_code == 201
+    query = added.json()
+    assert query["query"] == "terraform provisioning"
+    assert query["userAdded"] is True and query["enabled"] is True
+    toggled = client.patch(f"{url}/queries/{query['id']}", json={"enabled": False})
+    assert toggled.status_code == 200 and toggled.json()["enabled"] is False
+    edited = client.patch(f"{url}/queries/{query['id']}", json={"query": "terraform modules"})
+    assert edited.json()["query"] == "terraform modules"
+    assert client.delete(f"{url}/queries/{query['id']}").status_code == 204
+    assert client.get(url + "/queries").json() == []
+
+
+def test_editing_a_generated_query_makes_it_the_users(search_client_named):
+    client, _, _, llm, url = search_client_named
+    llm.expansion = ["infrastructure as code"]
+    generated = client.post(url + "/queries").json()[0]
+    assert generated["userAdded"] is False
+    edited = client.patch(f"{url}/queries/{generated['id']}", json={"query": "iac tooling"})
+    assert edited.json()["userAdded"] is True
+
+
+def test_query_validation_duplicates_and_cap(search_client_named):
+    client, _, _, _, url = search_client_named
+    assert _add(client, url, "   ").status_code == 422
+    assert _add(client, url, "x" * 161).status_code == 422
+    assert _add(client, url, "Cloud Automation").status_code == 201
+    assert _add(client, url, "cloud automation").status_code == 409
+    for n in range(9):
+        assert _add(client, url, f"query {n}").status_code == 201
+    assert _add(client, url, "one too many").status_code == 422
+    assert client.patch(f"{url}/queries/{uuid4()}", json={"enabled": False}).status_code == 404
+    first = client.get(url + "/queries").json()[0]
+    assert client.patch(f"{url}/queries/{first['id']}", json={}).status_code == 422
+
+
+def test_regenerate_keeps_user_queries_and_skips_duplicates(search_client_named):
+    client, _, _, llm, url = search_client_named
+    _add(client, url, "terraform")
+    llm.expansion = ["Terraform", "policy as code"]
+    queries = client.post(url + "/queries").json()
+    assert [(q["query"], q["userAdded"]) for q in queries] == [
+        ("policy as code", False),
+        ("terraform", True),
+    ]
+    llm.expansion = ["cloud provisioning"]
+    queries = client.post(url + "/queries").json()
+    assert [q["query"] for q in queries] == ["cloud provisioning", "terraform"]
+
+
+def test_project_edit_clears_generated_queries_only(search_client_named):
+    client, _, _, llm, url = search_client_named
     llm.expansion = ["alternate query"]
     client.post(url + "/queries")
-    assert client.get(url + "/queries").json()
-    changed = {**DATA, "researchQuestion": "new research question"}
+    _add(client, url, "my own query")
+    changed = {**DATA, "researchQuestion": "new research description"}
     assert client.put(url, json=changed).status_code == 200
-    assert client.get(url + "/queries").json() == []
+    assert [q["query"] for q in client.get(url + "/queries").json()] == ["my own query"]
+
+
+def test_query_edits_are_blocked_during_a_search(search_client_named):
+    client, _, _, _, url = search_client_named
+    query = _add(client, url, "terraform").json()
+    # Opens a real active run, as test_organization_search_lease does.
+    client.app.state.search.start(UUID(url.split("/")[-1]))
+    assert _add(client, url, "another").status_code == 409
+    assert client.patch(f"{url}/queries/{query['id']}", json={"enabled": False}).status_code == 409
+    assert client.delete(f"{url}/queries/{query['id']}").status_code == 409
 
 
 def test_repeated_search_and_shared_papers(search_client, engine):

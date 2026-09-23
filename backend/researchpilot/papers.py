@@ -84,6 +84,7 @@ class SearchQuery(BaseModel):
     projectId: UUID
     query: str
     enabled: bool = True
+    userAdded: bool = False
 
 
 class SearchResult(BaseModel):
