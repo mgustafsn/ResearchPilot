@@ -933,12 +933,16 @@ function literature(project, left, aside, actions, remove, referenceLibrary) {
     }
     if (busy) schedulePoll();
   }
-  function schedulePoll() {
-    clearTimeout(timer);
-    timer = setTimeout(() => refresh().catch(error => {
+  // Any refresh can cancel the poll timer, so every failed refresh must resume polling.
+  function refreshOrRetry() {
+    return refresh().catch(error => {
       showError(error);
       if (busy) schedulePoll();
-    }), 500);
+    });
+  }
+  function schedulePoll() {
+    clearTimeout(timer);
+    timer = setTimeout(refreshOrRetry, 500);
   }
   async function runSearch(force) {
     clearTimeout(timer);
@@ -972,7 +976,7 @@ function literature(project, left, aside, actions, remove, referenceLibrary) {
     try { await refresh(); } catch (error) { showError(error); }
   }
   searchButton.addEventListener('click', () => runSearch(false));
-  window.addEventListener('references-changed', () => refresh().catch(showError));
+  window.addEventListener('references-changed', refreshOrRetry);
   refresh().catch(error => {
     papersBody.replaceChildren();
     element('p', 'Unable to load saved papers. Refresh to try again.', papersBody, 'muted');
