@@ -100,6 +100,7 @@ class SearchRun(BaseModel):
     provider: str
     parameters: SearchParameters
     generatedQueries: list[str] = Field(default_factory=list)
+    failedQueries: list[str] = Field(default_factory=list)
     researchQuestion: str
     keywords: list[str]
     status: Literal["SEARCHING", "COMPLETED", "FAILED"]

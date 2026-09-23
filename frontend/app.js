@@ -898,6 +898,9 @@ function literature(project, left, aside, actions, remove, referenceLibrary) {
       const queries = element('ul', '', searchBody, 'generated-queries');
       for (const query of latest.generatedQueries) element('li', query, queries);
     }
+    if (latest?.failedQueries?.length) {
+      element('p', `${latest.failedQueries.length} of ${latest.generatedQueries.length} queries failed; results come from the rest.`, searchBody, 'field-help');
+    }
     if (!latest) {
       element('p', pendingSearch ? 'Searching scholarly papers…' : 'No search has been run yet.', searchBody, 'search-status');
       return;

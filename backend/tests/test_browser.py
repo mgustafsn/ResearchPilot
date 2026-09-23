@@ -2,24 +2,22 @@
 
 import asyncio
 import re
-import socket
 import threading
-import time
 
 import pytest
-import uvicorn
-from playwright.sync_api import sync_playwright, expect
+from playwright.sync_api import expect
 from sqlalchemy import create_engine
 
-from researchpilot.api import create_app
-from researchpilot.persistence import Base
-from test_search import (
+from fakes import (
     DATA,
-    RecordingProvider,
     RecordingEmbeddingProvider,
     RecordingLlmProvider,
+    RecordingProvider,
     _grouped_papers,
 )
+from live import live_browser
+from researchpilot.api import create_app
+from researchpilot.persistence import Base
 
 
 @pytest.fixture
@@ -41,28 +39,12 @@ def browser_app(tmp_path):
 
     embedder.embed = embed
     app = create_app(engine, provider, embedder, llm)
-    sock = socket.socket()
-    sock.bind(("127.0.0.1", 0))
-    server = uvicorn.Server(uvicorn.Config(app, log_level="error"))
-    thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
-    thread.start()
-    for _ in range(100):
-        if server.started:
-            break
-        time.sleep(0.02)
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch()
-        page = browser.new_page()
-        base = f"http://127.0.0.1:{sock.getsockname()[1]}"
+    with live_browser(app) as (page, base):
         project = page.request.post(base + "/api/projects", data=DATA).json()
         url = base + "/api/projects/" + project["id"]
         page.goto(base + "/projects/" + project["id"])
         yield page, url, gate, embedder, llm
         gate.set()
-        browser.close()
-    server.should_exit = True
-    thread.join(timeout=5)
-    sock.close()
     engine.dispose()
 
 

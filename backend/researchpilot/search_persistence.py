@@ -60,6 +60,7 @@ class SearchRunRow(Base):
     provider: Mapped[str] = mapped_column(String(100))
     parameters: Mapped[dict] = mapped_column(JSON)
     generatedQueries: Mapped[list] = mapped_column(JSON, default=list)
+    failedQueries: Mapped[list] = mapped_column(JSON, default=list)
     researchQuestion: Mapped[str] = mapped_column(Text)
     keywords: Mapped[list] = mapped_column(JSON)
     status: Mapped[str] = mapped_column(String(32))
