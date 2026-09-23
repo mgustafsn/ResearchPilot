@@ -138,3 +138,21 @@ def test_pending_request_survives_early_history_and_poll_failure(browser_app):
     expect(page.get_by_role("button", name="Searching OpenAlex…", exact=True)).to_be_disabled()
     gate.set()
     expect(page.get_by_role("button", name="Find papers", exact=True)).to_be_enabled()
+
+
+def test_query_editor_and_description_label(browser_app):
+    page, url, _, _, llm = browser_app
+    expect(page.get_by_text("Research description", exact=True)).to_be_visible()
+    page.get_by_placeholder("Add a search query").fill("terraform provisioning")
+    page.get_by_role("button", name="Add", exact=True).click()
+    row = page.locator(".query-option").filter(
+        has=page.locator("input[value='terraform provisioning']")
+    )
+    expect(row.locator(".query-tag")).to_have_text("Yours")
+    row.get_by_role("checkbox").uncheck()
+    expect(page.get_by_text("Enable at least one search query.")).to_be_visible()
+    expect(page.get_by_role("button", name="Find papers", exact=True)).to_be_disabled()
+    row.get_by_role("checkbox").check()
+    expect(page.get_by_role("button", name="Find papers", exact=True)).to_be_enabled()
+    queries = page.request.get(url + "/queries").json()
+    assert [(q["query"], q["enabled"]) for q in queries] == [("terraform provisioning", True)]

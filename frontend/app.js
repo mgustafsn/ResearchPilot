@@ -119,8 +119,9 @@ function projectForm(project = {}) {
   f.innerHTML += `
     <label for="title">Project title</label>
     <input id="title" name="title" required maxlength="200" placeholder="Give your project a name">
-    <label for="researchQuestion">Research question or topic</label>
-    <textarea id="researchQuestion" name="researchQuestion" required maxlength="5000" placeholder="What would you like to explore?"></textarea>
+    <label for="researchQuestion">Research description</label>
+    <textarea id="researchQuestion" name="researchQuestion" required maxlength="5000" aria-describedby="description-help" placeholder="Describe what you want to understand…"></textarea>
+    <p id="description-help" class="field-help">Guides query suggestions, relevance, and subtopic names. It is not searched directly.</p>
     <label for="keywords">Keywords <span class="optional">Optional</span></label>
     <textarea id="keywords" name="keywords" class="keywords-input" aria-describedby="keyword-help" placeholder="e.g. large language models"></textarea>
     <p id="keyword-help" class="field-help">One keyword or phrase per line.</p>
@@ -251,7 +252,7 @@ function detail(project) {
   tabs('Overview');
   const layout = element('div', '', content, 'workspace');
   const left = element('div', '', layout, 'context-column');
-  const summary = panel(left, 'Research topic summary');
+  const summary = panel(left, 'Research description');
   element('p', project.researchQuestion, summary, 'research-question');
   const stats = element('div', '', summary, 'stats');
   stat(stats, 'calendar', yearRange(project), 'publication years');
@@ -291,6 +292,7 @@ function literature(project, left, aside, actions, remove) {
   element('p', 'Loading saved papers…', papersBody, 'muted');
   let busy = false;
   let pendingSearch = false;
+  let noEnabledQueries = false;
   let timer;
   let refreshVersion = 0;
   let displayedRunId;
@@ -313,7 +315,7 @@ function literature(project, left, aside, actions, remove) {
     value = value || pendingSearch;
     busy = value;
     document.querySelectorAll(".drawer-organize select, .drawer-organize button, .edit-name, .rename-form input, .rename-form textarea, .rename-form button").forEach(control => { control.disabled = value; });
-    searchButton.disabled = value;
+    searchButton.disabled = value || noEnabledQueries;
     searchButton.textContent = value ? 'Searching OpenAlex…' : 'Find papers';
     if (!value) searchButton.prepend(icon('search'));
     remove.disabled = value;
@@ -641,37 +643,72 @@ function literature(project, left, aside, actions, remove) {
     });
   }
   function showSearch(history, savedQueries) {
+    noEnabledQueries = Boolean(savedQueries?.length) && !savedQueries.some(item => item.enabled);
     searchBody.replaceChildren();
     const latest = history[0];
     setBusy(latest?.status === 'SEARCHING');
-    element('p', 'OpenAlex searches your research question with the saved year range. Keywords remain project notes.', searchBody, 'field-help');
-    element('span', 'Search query', searchBody, 'query-label');
+    element('p', 'OpenAlex searches the enabled queries below with the saved year range. Your description guides suggestions and relevance but is never searched directly.', searchBody, 'field-help');
+    element('span', 'Description', searchBody, 'query-label');
     element('p', latest?.parameters.query ?? project.researchQuestion, searchBody, 'search-query');
     const queryControls = element('div', '', searchBody, 'query-controls');
-    const suggest = element('button', 'Suggest related queries', queryControls, 'secondary');
+    element('span', 'Search queries', queryControls, 'query-label');
+    const queryRequest = async (path, options) => {
+      errorBox.hidden = true;
+      try { await api(`${projectPath}/queries${path}`, {headers: {'Content-Type': 'application/json'}, ...options}); }
+      catch (error) { showError(error); }
+      await refresh();
+    };
+    if (!savedQueries?.length) {
+      element('p', 'Queries are suggested from your description on the first search, or suggest them now.', queryControls, 'field-help');
+    }
+    for (const saved of savedQueries ?? []) {
+      const row = element('div', '', queryControls, 'query-option');
+      const checkbox = element('input', '', row);
+      checkbox.type = 'checkbox';
+      checkbox.checked = saved.enabled;
+      checkbox.disabled = busy;
+      checkbox.setAttribute('aria-label', `Include ${saved.query}`);
+      checkbox.addEventListener('change', () => queryRequest(`/${saved.id}`, {method: 'PATCH', body: JSON.stringify({enabled: checkbox.checked})}));
+      const text = element('input', '', row, 'query-text');
+      text.value = saved.query;
+      text.setAttribute('value', saved.query);
+      text.maxLength = 160;
+      text.disabled = busy;
+      text.setAttribute('aria-label', 'Search query');
+      text.addEventListener('change', () => {
+        const value = text.value.trim();
+        if (!value || value === saved.query) { text.value = saved.query; return; }
+        queryRequest(`/${saved.id}`, {method: 'PATCH', body: JSON.stringify({query: value})});
+      });
+      if (saved.userAdded) {
+        element('span', 'Yours', row, 'query-tag');
+        const remove = element('button', '×', row, 'secondary query-remove');
+        remove.type = 'button';
+        remove.disabled = busy;
+        remove.setAttribute('aria-label', `Remove ${saved.query}`);
+        remove.addEventListener('click', () => queryRequest(`/${saved.id}`, {method: 'DELETE'}));
+      }
+    }
+    if (noEnabledQueries) element('p', 'Enable at least one search query.', queryControls, 'search-failure');
+    const addForm = element('form', '', queryControls, 'query-add');
+    const addInput = element('input', '', addForm);
+    addInput.placeholder = 'Add a search query';
+    addInput.maxLength = 160;
+    addInput.disabled = busy;
+    const addButton = element('button', 'Add', addForm, 'secondary');
+    addButton.disabled = busy;
+    addForm.addEventListener('submit', event => {
+      event.preventDefault();
+      const value = addInput.value.trim();
+      if (value) queryRequest('/custom', {method: 'POST', body: JSON.stringify({query: value})});
+    });
+    const suggest = element('button', savedQueries?.length ? 'Regenerate suggestions' : 'Suggest queries', queryControls, 'secondary');
     suggest.disabled = busy;
     suggest.addEventListener('click', async () => {
       suggest.disabled = true;
       try { await api(`${projectPath}/queries`, {method: 'POST'}); await refresh(); }
       catch (error) { showError(error); suggest.disabled = false; }
     });
-    if (savedQueries?.length) {
-      element('span', 'Optional queries to include', queryControls, 'query-label');
-      for (const saved of savedQueries) {
-        const label = element('label', '', queryControls, 'query-option');
-        const checkbox = element('input', '', label);
-        checkbox.type = 'checkbox';
-        checkbox.checked = saved.enabled;
-        checkbox.disabled = busy;
-        checkbox.addEventListener('change', async () => {
-          checkbox.disabled = true;
-          try { await api(`${projectPath}/queries/${saved.id}?enabled=${checkbox.checked}`, {method: 'PATCH'}); }
-          catch (error) { checkbox.checked = saved.enabled; showError(error); }
-          checkbox.disabled = busy;
-        });
-        element('span', saved.query, label);
-      }
-    }
     if (latest?.generatedQueries?.length) {
       element('span', 'Queries used for this search', searchBody, 'query-label');
       const queries = element('ul', '', searchBody, 'generated-queries');
