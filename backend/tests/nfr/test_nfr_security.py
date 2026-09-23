@@ -27,10 +27,14 @@ def test_nfr_sec_1_api_keys_never_leave_the_server(real_adapter_app, caplog):
     app = real_adapter_app
     caplog.set_level(logging.DEBUG)
     client, url = app.client, app.url
+    expand = client.post(url + "/queries")
+    search = client.post(url + "/search")
+    papers = client.get(url + "/papers")
     responses = [
-        client.post(url + "/queries"),
-        client.post(url + "/search"),
-        client.get(url + "/papers"),
+        app.created,
+        expand,
+        search,
+        papers,
         client.get(url + "/subtopics"),
         client.get(url + "/searches"),
         client.get(url + "/queries"),
@@ -39,7 +43,7 @@ def test_nfr_sec_1_api_keys_never_leave_the_server(real_adapter_app, caplog):
         client.get("/static/app.js"),
         client.get("/static/styles.css"),
     ]
-    paper = next(p for p in client.get(url + "/papers").json() if p["clusterId"] is not None)
+    paper = next(p for p in papers.json() if p["clusterId"] is not None)
     responses.append(client.post(f"{url}/papers/{paper['id']}/explanation"))
     assert all(r.status_code < 400 for r in responses), [(r.url, r.status_code) for r in responses]
     # The keys really were used upstream...
@@ -53,17 +57,33 @@ def test_nfr_sec_1_api_keys_never_leave_the_server(real_adapter_app, caplog):
     assert not any(secret in logged for secret in SECRETS)
 
 
-INJECTION = '<img src=x onerror="window.__xss=1">'
+# Distinct payload per field: each marker only fires if that specific field is un-escaped,
+# so the test proves title, abstract, venue AND authors are all rendered inert, not just one.
+INJECTION_TITLE = '<img src=x onerror="window.__xssTitle=1">'
+INJECTION_ABSTRACT = "<script>window.__xssAbstract=1</script>"
+INJECTION_VENUE = '<img src=x onerror="window.__xssVenue=1">'
+INJECTION_AUTHOR = '<img src=x onerror="window.__xssAuthor=1">'
+XSS_MARKERS = ("xssTitle", "xssAbstract", "xssVenue", "xssAuthor")
 
 
 def _hostile_papers():
+    location = WORK["primary_location"]
+    source = location["source"]  # normalize_work maps source.display_name -> venue/journal
+    authorships = list(WORK["authorships"])
+    authorships[0] = authorships[0] | {
+        "author": authorships[0]["author"]
+        | {"display_name": f"alpha {INJECTION_AUTHOR} hostile author"}
+    }
     hostile = normalize_work(
         WORK
         | {
             "id": "https://openalex.org/W8001",
             "doi": "https://doi.org/10.8000/hostile",
-            "title": f"alpha {INJECTION} hostile title",
-            "abstract_inverted_index": {"<script>window.__xss=1</script>": [0]},
+            "title": f"alpha {INJECTION_TITLE} hostile title",
+            "abstract_inverted_index": {INJECTION_ABSTRACT: [0]},
+            "primary_location": location
+            | {"source": source | {"display_name": f"alpha {INJECTION_VENUE} hostile venue"}},
+            "authorships": authorships,
         }
     )
     return [hostile, *grouped_papers()]
@@ -84,11 +104,20 @@ def test_nfr_sec_2_metadata_html_is_inert(tmp_path):
         page.request.post(f"{base}/api/projects/{project['id']}/search")
         page.goto(f"{base}/projects/{project['id']}")
         row = page.locator(".paper-row").filter(has_text="hostile title")
-        expect(row).to_contain_text(INJECTION)
+        # Card: title, authors (author name label) and venue are all rendered here.
+        expect(row).to_contain_text(INJECTION_TITLE)
+        expect(row).to_contain_text(INJECTION_AUTHOR)
+        expect(row).to_contain_text(INJECTION_VENUE)
         row.click()
-        expect(page.locator(".drawer-panel")).to_contain_text(INJECTION)
+        drawer = page.locator(".drawer-panel")
+        # Drawer: title, abstract, authors and venue (via "Published") are all rendered here.
+        expect(drawer).to_contain_text(INJECTION_TITLE)
+        expect(drawer).to_contain_text(INJECTION_ABSTRACT)
+        expect(drawer).to_contain_text(INJECTION_AUTHOR)
+        expect(drawer).to_contain_text(INJECTION_VENUE)
         assert page.locator("img[src='x']").count() == 0
-        assert page.evaluate("window.__xss") is None
+        for marker in XSS_MARKERS:
+            assert page.evaluate(f"window.__{marker}") is None
         assert dialogs == []
     engine.dispose()
 

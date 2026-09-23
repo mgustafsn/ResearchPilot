@@ -106,7 +106,12 @@ def real_adapter_app(engine, monkeypatch):
 
     monkeypatch.setattr(httpx, "AsyncClient", mocked_client)
     with TestClient(create_app(engine)) as client:
-        project = client.post("/api/projects", json=DATA).json()
+        created = client.post("/api/projects", json=DATA)
+        project = created.json()
         yield SimpleNamespace(
-            client=client, url=f"/api/projects/{project['id']}", requests=requests, fail=fail
+            client=client,
+            url=f"/api/projects/{project['id']}",
+            requests=requests,
+            fail=fail,
+            created=created,
         )
