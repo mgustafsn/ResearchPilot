@@ -321,6 +321,13 @@ def test_query_expansion_drops_long_queries_and_caps_at_six():
     assert result.queries == [f"short query {n}" for n in range(6)]
 
 
+def test_query_expansion_keeps_eight_words_and_drops_nine():
+    eight = "one two three four five six seven eight"
+    nine = "one two three four five six seven eight nine"
+    result = QueryExpansion(queries=[eight, nine])
+    assert result.queries == [eight]
+
+
 def test_query_expansion_prompt_asks_for_short_keyword_queries():
     def handler(request):
         body = json.loads(request.content)
