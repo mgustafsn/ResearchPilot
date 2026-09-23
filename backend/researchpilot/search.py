@@ -21,7 +21,7 @@ from .analysis import (
 )
 from .clustering import cluster_papers
 from .embeddings import EmbeddingProvider
-from .llm import ClusterNaming, LlmProvider, PaperBrief
+from .llm import QUERY_MAX, ClusterNaming, LlmProvider, PaperBrief
 from .papers import (
     Paper,
     PaperProvider,
@@ -297,11 +297,13 @@ class SearchService:
             logger.info("Search generated queries run=%s count=%s", run.id, len(saved))
         selected = [item.query for item in saved if item.enabled]
         logger.info("Search using saved queries run=%s selected=%s", run.id, len(selected))
+        if not selected:
+            raise NoEnabledQueries("Enable at least one search query.")
         return selected
 
     async def _expand_text(self, question, keywords, title):
         """Short keyword queries for the description; never the description itself."""
-        fallback = list(keywords) or [title]
+        fallback = [item[:QUERY_MAX] for item in (list(keywords) or [title])]
         expand = getattr(self.llm_provider, "expand_queries", None)
         if expand is None:
             return fallback

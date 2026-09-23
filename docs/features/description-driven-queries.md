@@ -47,6 +47,7 @@ that one variable.
 | Generated queries | 6 restatements of the full description (up to 17 words each) | 5 short queries, 2–4 words each |
 | totalFound (see caveat below) | 200,144 | 2,940,542 |
 | Unique (paperCount + filteredCount) | 90 | 98 |
+| duplicateCount | 12 | 2 |
 | filteredCount | 55 | 46 |
 | paperCount (kept) | 35 | 52 |
 | Subtopics | 2: "infrastructure automation and compliance", "Generative AI in Infrastructure Management" | 4: "Infrastructure as Code Practices and Challenges", "ai-driven infrastructure automation", "generative ai applications and design", "declarative infrastructure provisioning" |

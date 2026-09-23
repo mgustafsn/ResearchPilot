@@ -207,6 +207,23 @@ def test_search_with_no_enabled_query_is_rejected_without_a_run(search_client_na
     assert client.get(url).json()["status"] != "SEARCHING"
 
 
+def test_expand_queries_raises_when_all_saved_queries_become_disabled(search_client_named, engine):
+    """Only reachable via an expired-lease race: start() already blocks this at request time."""
+    from researchpilot.search import NoEnabledQueries
+    from researchpilot.search_persistence import SearchQueryRow
+
+    client, provider, _, llm, url = search_client_named
+    project_id = UUID(url.split("/")[-1])
+    _add(client, url, "only query")
+    service = client.app.state.search
+    run = service.start(project_id)
+    with Session(engine) as session, session.begin():
+        row = session.scalar(select(SearchQueryRow).where(SearchQueryRow.projectId == project_id))
+        row.enabled = False
+    with pytest.raises(NoEnabledQueries):
+        asyncio.run(service._expand_queries(run))
+
+
 def test_empty_expansion_falls_back_to_keywords(search_client_named):
     client, provider, _, llm, url = search_client_named
     llm.expansion = []
@@ -227,6 +244,18 @@ def test_no_keywords_falls_back_to_project_title(search_client_named):
     llm.expansion = []
     client.post(url + "/search")
     assert _retrieved(provider) == [DATA["title"]]
+
+
+def test_fallback_query_from_title_is_truncated_to_query_max(search_client_named):
+    client, provider, _, llm, url = search_client_named
+    long_title = "T" * 200
+    client.put(url, json={**DATA, "title": long_title, "keywords": []})
+    llm.expansion = []
+    client.post(url + "/search")
+    retrieved = _retrieved(provider)
+    assert retrieved == [long_title[:160]]
+    saved = client.get(url + "/queries").json()
+    assert len(saved[0]["query"]) == 160
 
 
 def _add(client, url, text):

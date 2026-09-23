@@ -314,7 +314,7 @@ function literature(project, left, aside, actions, remove) {
   function setBusy(value) {
     value = value || pendingSearch;
     busy = value;
-    document.querySelectorAll(".drawer-organize select, .drawer-organize button, .edit-name, .rename-form input, .rename-form textarea, .rename-form button").forEach(control => { control.disabled = value; });
+    document.querySelectorAll(".drawer-organize select, .drawer-organize button, .edit-name, .rename-form input, .rename-form textarea, .rename-form button, .query-controls input, .query-controls button").forEach(control => { control.disabled = value; });
     searchButton.disabled = value || noEnabledQueries;
     searchButton.textContent = value ? 'Searching OpenAlex…' : 'Find papers';
     if (!value) searchButton.prepend(icon('search'));
@@ -654,9 +654,16 @@ function literature(project, left, aside, actions, remove) {
     element('span', 'Search queries', queryControls, 'query-label');
     const queryRequest = async (path, options) => {
       errorBox.hidden = true;
-      try { await api(`${projectPath}/queries${path}`, {headers: {'Content-Type': 'application/json'}, ...options}); }
-      catch (error) { showError(error); }
+      try {
+        await api(`${projectPath}/queries${path}`, {headers: {'Content-Type': 'application/json'}, ...options});
+      } catch (error) {
+        showError(error);
+        // A 409 means a search started underneath us; re-render to reflect the locked state.
+        if (error.status === 409) await refresh();
+        return false;
+      }
       await refresh();
+      return true;
     };
     if (!savedQueries?.length) {
       element('p', 'Queries are suggested from your description on the first search, or suggest them now.', queryControls, 'field-help');
@@ -668,17 +675,21 @@ function literature(project, left, aside, actions, remove) {
       checkbox.checked = saved.enabled;
       checkbox.disabled = busy;
       checkbox.setAttribute('aria-label', `Include ${saved.query}`);
-      checkbox.addEventListener('change', () => queryRequest(`/${saved.id}`, {method: 'PATCH', body: JSON.stringify({enabled: checkbox.checked})}));
+      checkbox.addEventListener('change', async () => {
+        const ok = await queryRequest(`/${saved.id}`, {method: 'PATCH', body: JSON.stringify({enabled: checkbox.checked})});
+        if (!ok) checkbox.checked = saved.enabled;
+      });
       const text = element('input', '', row, 'query-text');
       text.value = saved.query;
       text.setAttribute('value', saved.query);
       text.maxLength = 160;
       text.disabled = busy;
       text.setAttribute('aria-label', 'Search query');
-      text.addEventListener('change', () => {
+      text.addEventListener('change', async () => {
         const value = text.value.trim();
         if (!value || value === saved.query) { text.value = saved.query; return; }
-        queryRequest(`/${saved.id}`, {method: 'PATCH', body: JSON.stringify({query: value})});
+        const ok = await queryRequest(`/${saved.id}`, {method: 'PATCH', body: JSON.stringify({query: value})});
+        if (!ok) text.value = saved.query;
       });
       if (saved.userAdded) {
         element('span', 'Yours', row, 'query-tag');

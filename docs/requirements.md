@@ -57,7 +57,7 @@ The user should be able to create a research project by entering:
 
 Example:
 
-Research question:
+Research description:
 
 > How are large language models currently being used in software engineering research?
 
@@ -991,7 +991,7 @@ The MVP is complete when the following scenario works end-to-end:
 
    > Large language models in software engineering
 
-3. Backend generates additional search queries.
+3. Backend generates short search queries from the description.
 
 4. A real scholarly API is queried.
 
