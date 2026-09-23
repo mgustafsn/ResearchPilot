@@ -33,10 +33,28 @@ def test_nfr_perf_2_tab_and_filter_rerender(large_browser, record_property):
         tab.click()
         expect(tab).to_have_class(re.compile(r"\bactive\b"))
         expect(page.locator(".paper-row")).to_have_count(expected)
+
+    papers = page.request.get(f"{base}/api/projects/{project_id}/papers").json()
+    selected_cluster = sorted({p["clusterId"] for p in papers if p["clusterId"] is not None})[0]
+    expected_oa = sum(
+        1
+        for p in papers
+        if p["clusterId"] == selected_cluster
+        and p["isRelevant"] is not False
+        and p["accessStatus"] == "OPEN_ACCESS"
+    )
     toggle = page.get_by_role("button", name="Open access only", exact=True)
+    paper_list = page.locator(".paper-list").element_handle()
     with budget(record_property, "NFR-PERF-2 filter", 0.3):
         toggle.click()
         expect(toggle).to_have_attribute("aria-pressed", "true")
+        if expected_oa == expected:
+            # A row-count assertion would prove nothing if the open-access filter
+            # happens to leave this cluster's count unchanged; wait for the
+            # re-render itself (the old .paper-list node gets replaced) instead.
+            page.wait_for_function("list => !list.isConnected", arg=paper_list)
+        else:
+            expect(page.locator(".paper-row")).to_have_count(expected_oa)
 
 
 def test_nfr_perf_3_backend_analysis_of_250_papers(record_property):

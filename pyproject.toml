@@ -11,6 +11,7 @@ dev = ["pytest>=8,<10", "ruff>=0.11,<1", "playwright>=1.50,<2"]
 pythonpath = ["backend"]
 testpaths = ["backend/tests"]
 markers = ["nfr: non-functional requirement tests (docs/requirements.md §31)"]
+junit_family = "xunit1"
 
 [tool.ruff]
 line-length = 100
