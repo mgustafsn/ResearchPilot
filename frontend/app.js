@@ -12,8 +12,8 @@ const paths = {
 };
 const SEARCH_STAGES = {
   RETRIEVING: 'Searching scholarly databases…',
-  ANALYZING: 'Removing duplicates and ranking by relevance…',
-  EMBEDDING: 'Generating paper embeddings…',
+  ANALYZING: 'Removing duplicates…',
+  EMBEDDING: 'Embedding papers and scoring relevance…',
   CLUSTERING: 'Discovering research themes…',
   NAMING: 'Naming the clusters…',
 };

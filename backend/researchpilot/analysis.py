@@ -114,18 +114,63 @@ class RankedPaper:
     relevance_score: float
 
 
-RELEVANCE_THRESHOLD = 0.10
+# Words that carry no topic on their own; long conversational questions are full of them.
+STOPWORDS = frozenset(
+    "a an and are as at be by can do does for from how in into is it its of on or so than"
+    " that the their them these this those to was were what when where which while who"
+    " why will with within".split()
+)
+
+# text-embedding-3-small cosine similarity to the research question: unrelated papers
+# sit near 0.25, clearly on-topic papers at 0.60 and above (docs/phase-15.md).
+SEMANTIC_FLOOR = 0.25
+SEMANTIC_CEILING = 0.60
+RELEVANCE_THRESHOLD = 0.40
 
 
 def filter_relevant(ranked: list[RankedPaper], threshold: float = RELEVANCE_THRESHOLD):
-    """Keep papers with enough lexical evidence for the original research question."""
+    """Keep papers relevant enough to the original research question to cluster."""
     return [item for item in ranked if item.relevance_score >= threshold]
+
+
+def semantic_relevance(cosine: float) -> float:
+    """Map cosine similarity linearly from the floor (0) to the ceiling (1), clamped."""
+    scaled = (cosine - SEMANTIC_FLOOR) / (SEMANTIC_CEILING - SEMANTIC_FLOOR)
+    return round(min(1.0, max(0.0, scaled)), 6)
+
+
+def _cosine(left: list[float], right: list[float]) -> float:
+    left_norm = math.sqrt(sum(value * value for value in left))
+    right_norm = math.sqrt(sum(value * value for value in right))
+    if not left_norm or not right_norm:
+        return 0.0
+    return sum(a * b for a, b in zip(left, right, strict=True)) / (left_norm * right_norm)
+
+
+def rank_semantically(
+    ranked: list[RankedPaper], question_vector: list[float], vectors: dict
+) -> list[RankedPaper]:
+    """Score by embedding similarity to the question; lexical order breaks ties."""
+    scored = [
+        (
+            RankedPaper(
+                item.paper, semantic_relevance(_cosine(question_vector, vectors[item.paper.id]))
+            ),
+            index,
+        )
+        for index, item in enumerate(ranked)
+    ]
+    return [
+        item for item, _ in sorted(scored, key=lambda pair: (-pair[0].relevance_score, pair[1]))
+    ]
 
 
 def rank_papers(papers: list[Paper], question: str, keywords: list[str]) -> list[RankedPaper]:
     """Rank by explainable weighted term coverage; corpus IDF rewards discriminating terms."""
-    query_terms = Counter(tokens(question))
-    keyword_terms = Counter(term for keyword in keywords for term in tokens(keyword))
+    query_terms = Counter(term for term in tokens(question) if term not in STOPWORDS)
+    keyword_terms = Counter(
+        term for keyword in keywords for term in tokens(keyword) if term not in STOPWORDS
+    )
     all_terms = set(query_terms) | set(keyword_terms)
     if not all_terms:
         return [RankedPaper(paper, 0.0) for paper in papers]

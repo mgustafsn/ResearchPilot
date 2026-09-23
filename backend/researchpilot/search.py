@@ -12,7 +12,13 @@ from uuid import UUID, uuid4
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 
-from .analysis import RankedPaper, deduplicate, filter_relevant, rank_papers
+from .analysis import (
+    RankedPaper,
+    deduplicate,
+    filter_relevant,
+    rank_papers,
+    rank_semantically,
+)
 from .clustering import cluster_papers
 from .embeddings import EmbeddingProvider
 from .llm import ClusterNaming, LlmProvider, PaperBrief
@@ -167,11 +173,36 @@ class SearchService:
             )
 
     async def _prepare(self, run, result) -> CompletedSearch:
-        """Deduplicate, rank, embed the newcomers, and cluster — all outside a transaction."""
+        """Deduplicate, embed, rank by similarity, filter, and cluster — outside a transaction."""
         analysis_started = time.perf_counter()
         await asyncio.to_thread(self._set_stage, run.id, "ANALYZING")
         deduplicated, duplicate_count = deduplicate(result.papers)
-        ranked_all = rank_papers(deduplicated, run.researchQuestion, run.keywords)
+        lexical = rank_papers(deduplicated, run.researchQuestion, run.keywords)
+        model = self.embedding_provider.model
+        provider = self.embedding_provider.name
+        dimension = self.embedding_provider.dimension
+        hashes = {
+            item.paper.id: hashlib.sha256(_embedding_text(item.paper).encode()).hexdigest()
+            for item in lexical
+        }
+        existing = await asyncio.to_thread(
+            self._existing_embeddings, hashes, model, provider, dimension
+        )
+        missing = [item for item in lexical if item.paper.id not in existing]
+        await asyncio.to_thread(self._set_stage, run.id, "EMBEDDING")
+        # The question shares the batch so relevance and clustering use one embedding space.
+        question = " ".join([run.researchQuestion, *run.keywords])
+        question_vector, *vectors = await asyncio.wait_for(
+            self.embedding_provider.embed(
+                [question, *(_embedding_text(item.paper) for item in missing)]
+            ),
+            EMBEDDING_TIMEOUT_SECONDS,
+        )
+        fresh_vectors: dict[UUID, list[float]] = {
+            item.paper.id: vector for item, vector in zip(missing, vectors, strict=True)
+        }
+        by_id = {**existing, **fresh_vectors}
+        ranked_all = rank_semantically(lexical, question_vector, by_id)
         ranked = filter_relevant(ranked_all)
         logger.info(
             "Search analyzed run=%s retrieved=%s unique=%s filtered=%s duration_ms=%s",
@@ -181,28 +212,6 @@ class SearchService:
             len(ranked_all) - len(ranked),
             round((time.perf_counter() - analysis_started) * 1000),
         )
-        model = self.embedding_provider.model
-        provider = self.embedding_provider.name
-        dimension = self.embedding_provider.dimension
-        hashes = {
-            item.paper.id: hashlib.sha256(_embedding_text(item.paper).encode()).hexdigest()
-            for item in ranked
-        }
-        existing = await asyncio.to_thread(
-            self._existing_embeddings, hashes, model, provider, dimension
-        )
-        missing = [item for item in ranked if item.paper.id not in existing]
-        fresh_vectors: dict[UUID, list[float]] = {}
-        await asyncio.to_thread(self._set_stage, run.id, "EMBEDDING")
-        if missing:
-            vectors = await asyncio.wait_for(
-                self.embedding_provider.embed([_embedding_text(item.paper) for item in missing]),
-                EMBEDDING_TIMEOUT_SECONDS,
-            )
-            fresh_vectors = {
-                item.paper.id: vector for item, vector in zip(missing, vectors, strict=True)
-            }
-        by_id = {**existing, **fresh_vectors}
         ordered = [by_id[item.paper.id] for item in ranked]
         await asyncio.to_thread(self._set_stage, run.id, "CLUSTERING")
         clustering_started = time.perf_counter()

@@ -79,7 +79,7 @@ def test_progress_and_locked_open_drawer(browser_app):
     )
     expect(page.locator(".drawer-organize select")).to_be_disabled()
     expect(page.get_by_role("button", name="Set aside as irrelevant")).to_be_disabled()
-    expect(page.locator(".search-status")).to_have_text("Generating paper embeddings…")
+    expect(page.locator(".search-status")).to_have_text("Embedding papers and scoring relevance…")
     gate.set()
     expect(page.get_by_role("button", name="Find papers", exact=True)).to_be_enabled()
 
@@ -133,7 +133,7 @@ def test_pending_request_survives_early_history_and_poll_failure(browser_app):
 
     page.route("**/searches", history)
     page.get_by_role("button", name="Find papers", exact=True).click()
-    expect(page.locator(".search-status")).to_have_text("Generating paper embeddings…")
+    expect(page.locator(".search-status")).to_have_text("Embedding papers and scoring relevance…")
     assert len(calls) >= 3
     expect(page.get_by_role("button", name="Searching OpenAlex…", exact=True)).to_be_disabled()
     gate.set()

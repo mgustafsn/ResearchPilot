@@ -56,11 +56,21 @@ class RecordingEmbeddingProvider:
             raise self.error
         return [self._vector(text) for text in texts]
 
+    @property
+    def paper_batches(self):
+        """Batches that embedded papers; each call leads with the research question."""
+        return [batch[1:] for batch in self.batches if len(batch) > 1]
+
     def _vector(self, text):
+        # Index 7 is a shared "on topic" axis; marine texts are off topic.
+        vector = [0.0] * self.dimension
+        if "marine" in text.casefold():
+            vector[6] = 10.0
+            return vector
         for index, marker in enumerate(("alpha", "bravo", "charlie")):
             if marker in text:
-                vector = [0.0] * self.dimension
                 vector[index] = 10.0
+                vector[7] = 10.0
                 return vector
         return [1.0] * self.dimension
 
@@ -270,7 +280,9 @@ def test_search_embeds_and_clusters_papers(search_client_with_embedder):
     assert run["clusterCount"] == 3
     papers = client.get(url + "/papers").json()
     assert {paper["clusterId"] for paper in papers} == {0, 1, 2}
-    assert sum(len(batch) for batch in embedder.batches) == 15
+    # One batch: the research question plus the 15 papers.
+    assert [len(batch) for batch in embedder.batches] == [16]
+    assert embedder.batches[0][0] == DATA["researchQuestion"] + " " + " ".join(DATA["keywords"])
 
 
 def test_embeddings_are_reused_on_a_second_search(search_client_with_embedder):
@@ -278,7 +290,35 @@ def test_embeddings_are_reused_on_a_second_search(search_client_with_embedder):
     provider.papers = _grouped_papers()
     client.post(url + "/search")
     client.post(url + "/search")
-    assert len(embedder.batches) == 1
+    # Paper vectors are reused; only the research question is embedded again.
+    assert [len(batch) for batch in embedder.batches] == [16, 1]
+
+
+def test_relevance_comes_from_semantic_similarity(search_client_with_embedder):
+    client, provider, embedder, url = search_client_with_embedder
+    wordy = normalize_work(
+        WORK
+        | {
+            "id": "https://openalex.org/W201",
+            "doi": "https://doi.org/10.1000/wordy",
+            "title": DATA["researchQuestion"] + " in marine ecosystems",
+        }
+    )
+    related = normalize_work(
+        WORK
+        | {
+            "id": "https://openalex.org/W202",
+            "doi": "https://doi.org/10.1000/related",
+            "title": "A study of alpha systems",
+            "abstract_inverted_index": None,
+        }
+    )
+    provider.papers = [wordy, related]
+    run = client.post(url + "/search").json()
+    assert run["filteredCount"] == 1
+    papers = client.get(url + "/papers").json()
+    assert [paper["doi"] for paper in papers] == ["10.1000/related"]
+    assert papers[0]["relevanceScore"] > 0.4
 
 
 def test_embedding_failure_preserves_previous_results(search_client_with_embedder):
@@ -679,9 +719,9 @@ def test_embedding_input_changes(search_client_with_embedder, field, value):
     assert client.post(url + "/search").status_code == 200
     provider.papers = [provider.papers[0].model_copy(update={field: value})]
     assert client.post(url + "/search").status_code == 200
-    assert len(embedder.batches) == 2
+    assert len(embedder.paper_batches) == 2
     assert client.post(url + "/search").status_code == 200
-    assert len(embedder.batches) == 2
+    assert len(embedder.paper_batches) == 2
 
 
 @pytest.mark.parametrize(
@@ -692,7 +732,7 @@ def test_embedding_identity_changes(search_client_with_embedder, field, value):
     client.post(url + "/search")
     setattr(embedder, field, value)
     assert client.post(url + "/search").status_code == 200
-    assert len(embedder.batches) == 2
+    assert len(embedder.paper_batches) == 2
 
 
 @pytest.mark.parametrize("expired", [False, True])
@@ -838,7 +878,7 @@ def test_shared_paper_interleaved_searches_keep_vector_metadata(engine):
         assert paper.embedding == reused.vectors[paper.id]
         assert paper.embeddingInputHash == reused.hashes[paper.id]
     asyncio.run(service.search(projects[1].id))
-    assert len(embedder.batches) == 3
+    assert len(embedder.paper_batches) == 3
 
 
 def test_legacy_cache_hashes_are_misses(search_client_named, engine):
@@ -854,7 +894,7 @@ def test_legacy_cache_hashes_are_misses(search_client_named, engine):
     result = client.post(url + "/papers/" + paper["id"] + "/explanation")
     assert result.json()["explanation"] != "Legacy text"
     client.post(url + "/search")
-    assert len(embedder.batches[-1]) == 1
+    assert len(embedder.paper_batches[-1]) == 1
 
 
 def test_postgres_concurrent_explanations_return_first_result(search_client_named, engine):

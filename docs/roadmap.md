@@ -19,6 +19,7 @@ partial scope in the research map and manual organization phases.
 | 12 | Create, delete, and merge subtopics with paper reassignment |
 | 13 | On-demand classification explanations on paper cards |
 | 14 | Settings page and complete primary navigation |
+| 15 | Semantic relevance scoring from question and paper embeddings |
 
 ## Demo stabilization
 
@@ -30,7 +31,6 @@ required before sign-off.
 
 ## Missing MVP capabilities: follow-up work
 
-- Semantic relevance scoring remains a target beyond the current lexical ranking.
 - Complete the requirements' end-to-end MVP acceptance scenario and logging coverage.
 
 These are not implemented as part of stabilization. Requirements are not reduced

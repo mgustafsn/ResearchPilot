@@ -6,6 +6,8 @@ from researchpilot.analysis import (
     normalize_doi,
     normalize_title,
     rank_papers,
+    rank_semantically,
+    semantic_relevance,
 )
 from researchpilot.papers import Paper
 
@@ -135,3 +137,41 @@ def test_ties_have_stable_metadata_ordering():
     alpha = paper("Alpha", citationCount=1)
     ranked = rank_papers([later, alpha, cited], "missing term", [])
     assert [item.paper for item in ranked] == [cited, alpha, later]
+
+
+def test_stopwords_do_not_dilute_lexical_relevance():
+    target = paper("Infrastructure code provisioning")
+    plain = rank_papers([target], "infrastructure code provisioning", [])
+    wordy = rank_papers([target], "where is the infrastructure as code for provisioning", [])
+    assert wordy[0].relevance_score == plain[0].relevance_score == 1.0
+
+
+def test_semantic_relevance_calibrates_cosine_to_a_percentage():
+    assert semantic_relevance(0.25) == 0.0
+    assert semantic_relevance(0.60) == 1.0
+    assert semantic_relevance(0.10) == 0.0
+    assert semantic_relevance(0.90) == 1.0
+    assert semantic_relevance(0.30) < semantic_relevance(0.45) < semantic_relevance(0.55)
+
+
+def test_rank_semantically_scores_by_cosine_and_breaks_ties_lexically():
+    first, second, off_topic = paper("First"), paper("Second"), paper("Off topic")
+    lexical = rank_papers([first, second, off_topic], "first second", [])
+    vectors = {
+        first.id: [1.0, 1.0, 0.0],
+        second.id: [2.0, 2.0, 0.0],
+        off_topic.id: [0.0, 0.0, 1.0],
+    }
+    ranked = rank_semantically(lexical, [1.0, 1.0, 0.0], vectors)
+    assert [item.paper for item in ranked] == [first, second, off_topic]
+    assert ranked[0].relevance_score == ranked[1].relevance_score == 1.0
+    assert ranked[2].relevance_score == 0.0
+    assert [item.paper for item in filter_relevant(ranked)] == [first, second]
+
+
+def test_rank_semantically_handles_zero_vectors():
+    empty = paper("Empty")
+    ranked = rank_semantically(
+        rank_papers([empty], "empty", []), [0.0, 0.0], {empty.id: [0.0, 0.0]}
+    )
+    assert ranked[0].relevance_score == 0.0

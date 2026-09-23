@@ -1,8 +1,8 @@
 # ResearchPilot
 
 Phases 1–9: manage research projects, retrieve real scholarly papers from OpenAlex,
-deduplicate and relevance-rank them with deterministic algorithms, embed and cluster
-them into groups, have an LLM name each cluster and explain why a paper belongs in
+deduplicate them, score relevance by embedding similarity to the research question,
+cluster them into groups, have an LLM name each cluster and explain why a paper belongs in
 it, browse the result as a research map with staged search progress and a
 paper-detail drawer, manually rename subtopics, move papers, and set papers aside,
 and see each paper's open-access status and links. Python 3.12+, FastAPI, SQLAlchemy,
@@ -55,7 +55,7 @@ not bundled inside the Python wheel.
 ## Current behavior
 
 The demo implements project CRUD, OpenAlex retrieval, deterministic DOI/identity/title
-deduplication and lexical relevance ranking, embedding-based clustering, structured
+deduplication, embedding-based relevance scoring and clustering, structured
 LLM subtopic naming, a research map, paper details, on-demand explanations, manual
 organization, and provider-derived open-access labels and links.
 
@@ -63,8 +63,11 @@ The saved research question is always searched, and the LLM may add up to five g
 related queries. Every query used is saved with the search run and shown in the search
 panel. Retrieval divides the paper limit across the queries before deduplication and
 ranking. If query expansion fails, the original question is used. Keywords influence
-expansion and lexical ranking. Papers scoring below the deterministic 0.10 relevance
-threshold are filtered before clustering; the count is shown in the search summary.
+expansion and ranking. Relevance is the cosine similarity between the embedded research
+question (plus keywords) and each paper's title/abstract embedding, calibrated linearly
+so cosine 0.25 is 0% and 0.60 is 100%. Stopword-filtered lexical overlap only breaks ties.
+Papers below 40% are filtered before clustering; the count is shown in the search
+summary.
 Users can set retained papers aside and restore them.
 
 Scholarly metadata comes only from `PaperProvider` implementations. Embeddings and
@@ -140,7 +143,6 @@ HTTPX mock transports; no paid provider calls are required.
 The current MVP covers query expansion and selection, relevance filtering, manual
 subtopic management, card-level explanations, and settings/navigation. Remaining
 follow-up work is the requirements' end-to-end acceptance scenario and broader logging
-coverage. Semantic relevance scoring remains a future improvement beyond the current
-deterministic lexical ranking. See the [roadmap](docs/roadmap.md). Historical phase
+coverage. See the [roadmap](docs/roadmap.md). Historical phase
 notes describe their phase at implementation time; this README describes current
 behavior.
