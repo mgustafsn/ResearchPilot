@@ -17,6 +17,7 @@ from fakes import (
 )
 from researchpilot.api import create_app
 from researchpilot.papers import ProviderError, SearchResult
+from researchpilot.providers.multi import MultiSourceProvider
 from researchpilot.providers.openalex import normalize_work
 from researchpilot.search_persistence import PaperRow, ProjectPaperRow, SearchRunRow
 
@@ -987,3 +988,101 @@ def test_postgres_concurrent_explanations_return_first_result(search_client_name
         futures = [pool.submit(store, text) for text in ["One", "Two"]]
         results = [future.result(timeout=10) for future in futures]
     assert results[0] == results[1]
+
+
+def _multi_client(engine, *sources):
+    return TestClient(
+        create_app(
+            engine,
+            MultiSourceProvider(list(sources)),
+            RecordingEmbeddingProvider(),
+            RecordingLlmProvider(),
+        )
+    )
+
+
+def _named(name, papers=None, error=None):
+    provider = RecordingProvider()
+    provider.name = name
+    if papers is not None:
+        provider.papers = papers
+    provider.error = error
+    return provider
+
+
+def test_failed_source_is_persisted_and_returned(engine):
+    with _multi_client(
+        engine, _named("OpenAlex"), _named("Scopus", error=ProviderError("RATE_LIMITED"))
+    ) as client:
+        url = f"/api/projects/{client.post('/api/projects', json=DATA).json()['id']}"
+        run = client.post(url + "/search").json()
+        assert run["status"] == "COMPLETED"
+        assert run["provider"] == "OpenAlex+Scopus"
+        assert run["failedSources"] == ["Scopus"]
+        assert client.get(url + "/searches").json()[0]["failedSources"] == ["Scopus"]
+
+
+def test_single_source_runs_report_no_failed_sources(search_client):
+    client, _, url = search_client
+    assert client.post(url + "/search").json()["failedSources"] == []
+
+
+def test_cross_source_duplicate_keeps_openalex_abstract_and_scopus_citations(engine):
+    openalex_copy = normalize_work(WORK).model_copy(update={"citationCount": None})
+    assert openalex_copy.abstract and openalex_copy.doi
+    # The Scopus copy has more fields filled in but no abstract (STANDARD view).
+    scopus_copy = openalex_copy.model_copy(
+        update={
+            "id": uuid4(),
+            "source": "Scopus",
+            "sourceId": "2-s2.0-85000000000",
+            "sourceUrl": "https://www.scopus.com/record/display.uri?eid=2-s2.0-85000000000",
+            "abstract": None,
+            "citationCount": 99,
+            "publisher": openalex_copy.publisher or "Elsevier",
+            "venue": openalex_copy.venue or "Scopus venue",
+        }
+    )
+    with _multi_client(
+        engine, _named("OpenAlex", [openalex_copy]), _named("Scopus", [scopus_copy])
+    ) as client:
+        url = f"/api/projects/{client.post('/api/projects', json=DATA).json()['id']}"
+        run = client.post(url + "/search").json()
+        papers = client.get(url + "/papers").json()
+    assert run["duplicateCount"] >= 1
+    assert len(papers) == 1
+    assert papers[0]["abstract"] == openalex_copy.abstract
+    assert papers[0]["citationCount"] == 99
+
+
+def test_merged_sources_are_capped_at_the_paper_limit(engine):
+    # 30 unique on-topic papers across two sources; DATA["maxPaperCount"] is 25.
+    papers = _grouped_papers(per_group=10)
+    with _multi_client(
+        engine, _named("OpenAlex", papers[:15]), _named("Scopus", papers[15:])
+    ) as client:
+        url = f"/api/projects/{client.post('/api/projects', json=DATA).json()['id']}"
+        run = client.post(url + "/search").json()
+    assert run["paperCount"] + run["filteredCount"] == DATA["maxPaperCount"]
+
+
+def test_postgres_failed_sources_upgrade(search_client, engine):
+    """Simulate a pre-017 run, then apply the real upgrade and check the backfill."""
+    from pathlib import Path
+    import runpy
+
+    from sqlalchemy import inspect
+
+    if engine.dialect.name != "postgresql":
+        pytest.skip("PostgreSQL migration verification")
+    client, _, url = search_client
+    root = Path(__file__).parents[2]
+    applied = runpy.run_path(str(root / "scripts/migrate.py"))["_already_applied"]
+    client.post(url + "/search")
+    with engine.begin() as connection:
+        connection.exec_driver_sql('ALTER TABLE search_runs DROP COLUMN "failedSources"')
+    assert not applied(inspect(engine), 17)
+    with engine.begin() as connection:
+        connection.exec_driver_sql((root / "migrations/017_failed_sources.sql").read_text())
+    assert applied(inspect(engine), 17)
+    assert client.get(url + "/searches").json()[0]["failedSources"] == []

@@ -80,6 +80,7 @@ class CompletedSearch:
     subtopics: dict[int, ClusterNaming]
     naming_error: str | None
     failed_queries: list[str]
+    failed_sources: list[str]
 
 
 def _embedding_text(paper: Paper) -> str:
@@ -249,7 +250,10 @@ class SearchService:
             item.paper.id: vector for item, vector in zip(missing, vectors, strict=True)
         }
         by_id = {**existing, **fresh_vectors}
-        ranked_all = rank_semantically(lexical, question_vector, by_id)
+        # Several sources may return more unique papers than the limit; keep the most relevant.
+        ranked_all = rank_semantically(lexical, question_vector, by_id)[
+            : run.parameters.maxPaperCount
+        ]
         ranked = filter_relevant(ranked_all)
         logger.info(
             "Search analyzed run=%s retrieved=%s unique=%s duplicates=%s filtered=%s duration_ms=%s",
@@ -290,6 +294,7 @@ class SearchService:
             subtopics=subtopics,
             naming_error=naming_error,
             failed_queries=failed_queries,
+            failed_sources=result.failedSources,
         )
 
     async def _expand_queries(self, run):
@@ -347,6 +352,9 @@ class SearchService:
                 papers=[paper for result in results for paper in result.papers],
                 totalFound=sum(result.totalFound for result in results),
                 skippedCount=sum(result.skippedCount for result in results),
+                failedSources=list(
+                    dict.fromkeys(name for result in results for name in result.failedSources)
+                ),
             ),
             failed,
         )
@@ -413,6 +421,7 @@ class SearchService:
                 latest.duplicateCount = completed.duplicate_count
                 latest.filteredCount = completed.filtered_count
                 latest.failedQueries = completed.failed_queries
+                latest.failedSources = completed.failed_sources
                 latest.clusterCount = completed.cluster_count
                 latest.namingError = completed.naming_error
                 latest.status = "COMPLETED"
