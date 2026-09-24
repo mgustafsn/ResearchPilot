@@ -1,4 +1,4 @@
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 import os
 from pathlib import Path
 from uuid import UUID
@@ -34,6 +34,7 @@ from .service import ProjectNotFound, ProjectService
 from .papers import ProjectPaper, ProviderError, SearchQuery, SearchRun, Subtopic
 from .providers.openai import OpenAIEmbeddingProvider, OpenAILlmProvider
 from .providers.openalex import OpenAlexProvider
+from .providers.multi import MultiSourceProvider
 from .providers.scopus import ScopusProvider
 from .search import DuplicateQuery, InvalidQuery, NoEnabledQueries, SearchService
 from .search_persistence import (
@@ -53,22 +54,33 @@ from .references import (
 FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
 
 
+SOURCES = {
+    "openalex": (openalex_headers, OpenAlexProvider),
+    "scopus": (scopus_headers, ScopusProvider),
+}
+
+
 def create_app(engine=None, provider=None, embedding_provider=None, llm_provider=None):
     @asynccontextmanager
     async def lifespan(app):
         app.state.engine = (
             engine if engine is not None else create_engine(database_url(), pool_pre_ping=True)
         )
-        selected_name = scholarly_providers()[0] if provider is None else "openalex"
-        async with (
-            httpx.AsyncClient(
-                headers=scopus_headers() if selected_name == "scopus" else openalex_headers(),
-                timeout=15.0,
-            ) as client,
-            httpx.AsyncClient(headers=openai_headers(), timeout=30.0) as openai_client,
-        ):
+        names = scholarly_providers() if provider is None else []
+        async with AsyncExitStack() as stack:
+            openai_client = await stack.enter_async_context(
+                httpx.AsyncClient(headers=openai_headers(), timeout=30.0)
+            )
+            # One client per source: each sends its own credentials.
+            sources = []
+            for name in names:
+                headers, source = SOURCES[name]
+                client = await stack.enter_async_context(
+                    httpx.AsyncClient(headers=headers(), timeout=15.0)
+                )
+                sources.append(source(client))
             selected_provider = provider or (
-                ScopusProvider(client) if selected_name == "scopus" else OpenAlexProvider(client)
+                sources[0] if len(sources) == 1 else MultiSourceProvider(sources)
             )
             app.state.search = SearchService(
                 app.state.engine,
@@ -143,8 +155,12 @@ def create_app(engine=None, provider=None, embedding_provider=None, llm_provider
 
     @app.get("/api/settings/status")
     def settings_status():
+        search_provider = app.state.search.provider
         return {
-            "scholarlyProvider": app.state.search.provider.name,
+            "scholarlyProvider": search_provider.name,
+            "scholarlyProviders": [
+                source.name for source in getattr(search_provider, "providers", [search_provider])
+            ],
             "openAlexApiKeyConfigured": bool(os.environ.get("OPENALEX_API_KEY", "").strip()),
             "openAlexEmailConfigured": bool(os.environ.get("OPENALEX_EMAIL", "").strip()),
             "elsevierApiKeyConfigured": bool(os.environ.get("ELSEVIER_API_KEY", "").strip()),

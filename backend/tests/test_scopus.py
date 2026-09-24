@@ -145,5 +145,21 @@ def test_app_selects_scopus_without_exposing_key(engine, monkeypatch):
         response = client.get("/api/settings/status")
     assert response.status_code == 200
     assert response.json()["scholarlyProvider"] == "Scopus"
+    assert response.json()["scholarlyProviders"] == ["Scopus"]
     assert response.json()["elsevierApiKeyConfigured"] is True
     assert "test-secret" not in response.text
+
+
+def test_app_combines_configured_sources(engine, monkeypatch):
+    monkeypatch.setenv("SCHOLARLY_PROVIDER", "openalex,scopus")
+    monkeypatch.setenv("ELSEVIER_API_KEY", "test-secret")
+    with TestClient(create_app(engine)) as client:
+        body = client.get("/api/settings/status").json()
+        provider = client.app.state.search.provider
+        # Each source keeps its own client and headers.
+        openalex, scopus = provider.providers
+        assert "X-ELS-APIKey" not in openalex.client.headers
+        assert scopus.client.headers["X-ELS-APIKey"] == "test-secret"
+    assert body["scholarlyProvider"] == "OpenAlex+Scopus"
+    assert body["scholarlyProviders"] == ["OpenAlex", "Scopus"]
+    assert "test-secret" not in str(body)
