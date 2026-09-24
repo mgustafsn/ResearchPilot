@@ -91,6 +91,7 @@ class SearchResult(BaseModel):
     papers: list[Paper]
     totalFound: int
     skippedCount: int = 0
+    failedSources: list[str] = Field(default_factory=list)
 
 
 class SearchRun(BaseModel):
@@ -101,6 +102,7 @@ class SearchRun(BaseModel):
     parameters: SearchParameters
     generatedQueries: list[str] = Field(default_factory=list)
     failedQueries: list[str] = Field(default_factory=list)
+    failedSources: list[str] = Field(default_factory=list)
     researchQuestion: str
     keywords: list[str]
     status: Literal["SEARCHING", "COMPLETED", "FAILED"]
