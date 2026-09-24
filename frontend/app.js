@@ -202,12 +202,15 @@ async function settings() {
   const services = element('div', '', layout, 'settings-services');
   const source = panel(services, 'Scholarly papers', 'search', 'settings-panel');
   const active = element('div', '', source, 'settings-active-source');
-  element('span', 'CURRENT SOURCE', active, 'settings-eyebrow');
-  const providerId = status.scholarlyProvider.toLowerCase();
-  const sourceName = providerId === 'scopus' ? 'Scopus'
-    : providerId === 'openalex' ? 'OpenAlex' : status.scholarlyProvider;
-  element('strong', sourceName, active, 'settings-active-name');
-  element('p', 'Paper titles, authors, citation counts, and links come from this source.', active);
+  const sourceNames = status.scholarlyProviders || [status.scholarlyProvider];
+  const activeIds = sourceNames.map((name) => name.toLowerCase());
+  const sourceLabel = (name) => ({scopus: 'Scopus', openalex: 'OpenAlex'})[name.toLowerCase()] || name;
+  const several = sourceNames.length > 1;
+  element('span', several ? 'CURRENT SOURCES' : 'CURRENT SOURCE', active, 'settings-eyebrow');
+  element('strong', sourceNames.map(sourceLabel).join(' + '), active, 'settings-active-name');
+  element('p', several
+    ? 'Paper titles, authors, citation counts, and links come from these sources; duplicates are merged.'
+    : 'Paper titles, authors, citation counts, and links come from this source.', active);
   const sourceList = element('div', '', source, 'settings-service-list');
   const serviceRow = (parent, name, description, badge, tone) => {
     const row = element('div', '', parent, 'settings-service-row');
@@ -220,13 +223,13 @@ async function settings() {
     status.openAlexApiKeyConfigured
       ? `API key configured · ${status.openAlexEmailConfigured ? 'email configured' : 'email optional'}`
       : `No API key needed · ${status.openAlexEmailConfigured ? 'email configured' : 'email optional'}`,
-    providerId === 'openalex' ? 'In use' : 'Available',
-    providerId === 'openalex' ? 'settings-status-active' : 'settings-status-neutral');
+    activeIds.includes('openalex') ? 'In use' : 'Available',
+    activeIds.includes('openalex') ? 'settings-status-active' : 'settings-status-neutral');
   serviceRow(sourceList, 'Scopus',
     status.elsevierApiKeyConfigured ? 'Elsevier API key configured' : 'Requires an Elsevier API key',
-    providerId === 'scopus' ? 'In use'
+    activeIds.includes('scopus') ? 'In use'
       : status.elsevierApiKeyConfigured ? 'Configured' : 'Not configured',
-    providerId === 'scopus' ? 'settings-status-active'
+    activeIds.includes('scopus') ? 'settings-status-active'
       : status.elsevierApiKeyConfigured ? 'settings-status-neutral' : 'settings-status-missing');
 
   const ai = panel(services, 'Research assistance', 'bulb', 'settings-panel');
@@ -1030,6 +1033,12 @@ function literature(project, left, aside, actions, remove, referenceLibrary) {
     }
     if (latest?.failedQueries?.length) {
       element('p', `${latest.failedQueries.length} of ${latest.generatedQueries.length} queries failed; results come from the rest.`, searchNotice, 'field-help');
+    }
+    if (latest?.failedSources?.length) {
+      const joinNames = (names) => names.length < 2 ? names.join('')
+        : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+      const remaining = latest.provider.split('+').filter((name) => !latest.failedSources.includes(name));
+      element('p', `${joinNames(latest.failedSources)} ${latest.failedSources.length > 1 ? 'were' : 'was'} unavailable; results come from ${joinNames(remaining)} only.`, searchNotice, 'field-help');
     }
     if (!latest) {
       element('p', pendingSearch ? 'Searching scholarly papers…' : 'No search has been run yet.', searchNotice, 'search-status');

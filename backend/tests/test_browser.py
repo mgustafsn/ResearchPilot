@@ -376,3 +376,53 @@ def test_manual_edit_confirmation_visible_with_search_closed(browser_app):
     expect(page.locator(".search-disclosure")).not_to_have_attribute("open", "")
     page.get_by_role("button", name="Run anyway").click()
     expect(page.locator(".paper-row")).to_have_count(15)
+
+
+def test_settings_marks_every_configured_source_in_use(browser_app):
+    page, url, _, _, _ = browser_app
+    page.route(
+        "**/api/settings/status",
+        lambda route: route.fulfill(
+            json={
+                "scholarlyProvider": "OpenAlex+Scopus",
+                "scholarlyProviders": ["OpenAlex", "Scopus"],
+                "openAlexApiKeyConfigured": False,
+                "openAlexEmailConfigured": False,
+                "elsevierApiKeyConfigured": True,
+                "llmProvider": "OpenAI",
+                "openAiApiKeyConfigured": False,
+                "customOpenAiEndpointConfigured": False,
+            }
+        ),
+    )
+    page.goto(url.split("/api/projects/")[0] + "/settings")
+    expect(page.locator(".settings-active-name")).to_have_text("OpenAlex + Scopus")
+    for name in ("OpenAlex", "Scopus"):
+        expect(page.locator(".settings-service-row").filter(has_text=name)).to_contain_text(
+            "In use"
+        )
+
+
+def test_failed_source_warning(browser_app):
+    page, url, _, _, _ = browser_app
+    page.request.post(url + "/search")
+
+    def with_failed_source(route):
+        response = route.fetch()
+        runs = response.json()
+        runs[0] |= {"provider": "OpenAlex+Scopus", "failedSources": ["Scopus"]}
+        route.fulfill(response=response, json=runs)
+
+    page.route("**/searches", with_failed_source)
+    page.reload()
+    expect(
+        page.get_by_text("Scopus was unavailable; results come from OpenAlex only.")
+    ).to_be_visible()
+
+
+def test_no_failed_source_warning_by_default(browser_app):
+    page, url, _, _, _ = browser_app
+    page.request.post(url + "/search")
+    page.reload()
+    expect(page.locator(".paper-row").first).to_be_visible()
+    expect(page.get_by_text("was unavailable", exact=False)).to_have_count(0)
