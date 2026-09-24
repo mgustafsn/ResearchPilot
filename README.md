@@ -99,13 +99,15 @@ Users can set retained papers aside and restore them.
 The paper list can be ordered by relevance, citation count, publication date, or title;
 sorting applies within every subtopic and keeps the selected order when filters refresh.
 The References tab stores selected search papers and manually entered citations,
-including unlinked drafts. Reference numbers and notes belong to the project and
-remain available after later searches. Each saved reference has a separate reading status:
-To read, Reading, or Read. Change it directly in the References tab and filter the list
-by status. New and existing references default to To read; progress belongs to each
-project and survives later searches. The filter resets to All when reopening a project.
-Apply migration `016_reference_reading_status.sql` before starting this version
-(the local launcher applies pending migrations automatically).
+including unlinked drafts. Notes belong to the project and remain available after later
+searches. A reference can be marked as cited, optionally with a unique citation number;
+unciting keeps the old number so it can be restored. References are listed by title.
+Each saved reference has a separate reading status: To read, Reading, or Read. Change it
+directly in the References tab and filter the list by status. New and existing
+references default to To read; progress belongs to each project and survives later
+searches. The filter resets to All when reopening a project. Apply migrations
+`016_reference_reading_status.sql` through `018_reference_citation_tracking.sql` before
+starting this version (the local launcher applies pending migrations automatically).
 
 Scholarly metadata comes only from `PaperProvider` implementations. Embeddings and
 LLM interpretation use separate interfaces. OpenAI supplies title/abstract embeddings
@@ -181,6 +183,8 @@ provider timeouts and the 30-second outer deadline return 504 with code
 - `/api/projects/{id}/references`: GET list and POST manual citation.
 - `/api/projects/{id}/references/from-paper/{paperId}`: POST to save a search paper.
 - `/api/projects/{id}/references/{referenceId}`: PATCH or DELETE a saved reference.
+  Reference responses include `isCited`, `citationNumber`, and read-only
+  `previousCitationNumber`; a number requires `isCited` and is unique per project.
   Reference responses include `readingStatus` (`TO_READ`, `READING`, `READ`); creation
   and PATCH accept it independently of publication `status`. Omitted PATCH fields
   remain unchanged; null or invalid reading statuses return 422.
