@@ -107,9 +107,9 @@ def test_settings_and_project_references(browser_app):
     page, url, _, _, _ = browser_app
     page.goto(page.url.split("/projects/")[0] + "/settings")
     expect(page.get_by_role("heading", name="Settings")).to_be_visible()
-    expect(
-        page.get_by_text("Test scholarly provider · available without an API key")
-    ).to_be_visible()
+    expect(page.locator(".settings-active-name")).to_have_text("Test scholarly provider")
+    expect(page.get_by_role("heading", name="Research assistance")).to_be_visible()
+    expect(page.get_by_role("heading", name="How to configure")).to_be_visible()
     page.goto(page.url.replace("/settings", "/projects/" + url.rsplit("/", 1)[-1]))
     page.get_by_role("button", name="References", exact=True).click()
     page.get_by_role("button", name="Add reference").click()
@@ -123,6 +123,39 @@ def test_settings_and_project_references(browser_app):
     page.locator(".paper-row .card-save").first.click()
     page.get_by_role("button", name="References", exact=True).click()
     expect(page.locator(".reference-row")).to_have_count(2)
+
+
+def test_settings_shows_provider_configuration_without_credentials(browser_app):
+    page, url, _, _, _ = browser_app
+    page.route(
+        "**/api/settings/status",
+        lambda route: route.fulfill(
+            json={
+                "scholarlyProvider": "Scopus",
+                "openAlexApiKeyConfigured": False,
+                "openAlexEmailConfigured": False,
+                "elsevierApiKeyConfigured": True,
+                "llmProvider": "OpenAI",
+                "openAiApiKeyConfigured": False,
+                "customOpenAiEndpointConfigured": False,
+            }
+        ),
+    )
+    page.goto(url.split("/api/projects/")[0] + "/settings")
+    expect(page.locator(".settings-active-name")).to_have_text("Scopus")
+    expect(page.locator(".settings-service-row").filter(has_text="Scopus")).to_contain_text(
+        "In use"
+    )
+    expect(
+        page.locator(".settings-service-row").filter(
+            has=page.get_by_role("heading", name="OpenAI", exact=True)
+        )
+    ).to_contain_text("Needs setup")
+    expect(page.locator(".settings-service-row").filter(has_text="OpenAlex")).to_contain_text(
+        "No API key needed"
+    )
+    expect(page.get_by_text("ELSEVIER_API_KEY", exact=True)).to_be_visible()
+    expect(page.get_by_text("Statuses show configuration only", exact=False)).to_be_visible()
 
 
 def test_pending_request_survives_early_history_and_poll_failure(browser_app):
@@ -143,13 +176,14 @@ def test_pending_request_survives_early_history_and_poll_failure(browser_app):
     page.get_by_role("button", name="Find papers", exact=True).click()
     expect(page.locator(".search-status")).to_have_text("Embedding papers and scoring relevance…")
     assert len(calls) >= 3
-    expect(page.get_by_role("button", name="Searching OpenAlex…", exact=True)).to_be_disabled()
+    expect(page.get_by_role("button", name="Searching papers…", exact=True)).to_be_disabled()
     gate.set()
     expect(page.get_by_role("button", name="Find papers", exact=True)).to_be_enabled()
 
 
 def test_query_editor_and_description_label(browser_app):
     page, url, _, _, llm = browser_app
+    page.locator(".project-details > summary").click()
     expect(page.get_by_text("Research description", exact=True)).to_be_visible()
     page.get_by_placeholder("Add a search query").fill("terraform provisioning")
     page.get_by_role("button", name="Add", exact=True).click()
@@ -179,3 +213,166 @@ def test_selected_subtopic_survives_a_refresh(browser_app):
     page.wait_for_function("list => !list.isConnected", arg=previous)
     expect(page.locator(".cluster-tab").nth(1)).to_have_class(re.compile(r"\bactive\b"))
     expect(page.locator(".subtopic-menu summary")).to_be_visible()
+
+
+def test_papers_can_be_sorted_across_tabs_and_refreshes(browser_app):
+    page, url, _, _, _ = browser_app
+    page.request.post(url + "/search")
+    original = page.request.get(url + "/papers").json()
+    assert len(original) == 15
+
+    def add_sort_values(route):
+        response = route.fetch()
+        papers = response.json()
+        for index, paper in enumerate(papers):
+            paper["citationCount"] = index * 10
+            paper["publicationYear"] = 2000 + index
+            paper["publicationDate"] = f"{2000 + index}-01-01"
+        route.fulfill(response=response, json=papers)
+
+    page.route("**/papers", add_sort_values)
+    page.reload()
+    sort = page.get_by_label("Sort papers")
+    titles = page.locator(".paper-list .paper-row h3")
+    expect(page.locator(".paper-results-heading h3")).to_have_text("All papers")
+    sort.select_option("citations")
+    expect(titles.first).to_have_text(original[-1]["title"])
+    first_group = [paper for paper in original if paper["clusterId"] == original[0]["clusterId"]]
+    page.locator(".cluster-tab").nth(1).click()
+    expect(page.locator(".paper-results-count")).to_have_text(f"{len(first_group)} results")
+    expect(titles.first).to_have_text(first_group[-1]["title"])
+    page.get_by_role("button", name="Open access only", exact=True).click()
+    expect(sort).to_have_value("citations")
+    page.locator(".cluster-tab").first.click()
+    page.get_by_role("button", name="Open access only", exact=True).click()
+    sort.select_option("newest")
+    expect(titles.first).to_have_text(original[-1]["title"])
+    sort.select_option("oldest")
+    expect(titles.first).to_have_text(original[0]["title"])
+    sort.select_option("relevance")
+    expect(titles.first).to_have_text(original[0]["title"])
+    sort.select_option("title")
+    assert titles.all_text_contents() == sorted(titles.all_text_contents(), key=str.casefold)
+
+
+def test_reference_reading_workflow(browser_app):
+    page, url, _, _, _ = browser_app
+    page.get_by_role("button", name="References", exact=True).click()
+    expect(page.get_by_text("No references yet.", exact=False)).to_be_visible()
+    for title in ["First paper", "Second paper"]:
+        page.request.post(url + "/references", data={"title": title})
+    page.reload()
+    page.get_by_role("button", name="References", exact=True).click()
+    rows = page.locator(".reference-row")
+    status = rows.first.get_by_label("Reading status", exact=True)
+    status.select_option("READING")
+    expect(status).to_be_enabled()
+    expect(status).to_have_value("READING")
+    status.select_option("READ")
+    expect(status).to_be_enabled()
+    filter_control = page.get_by_label("Filter by reading status")
+    filter_control.select_option("READ")
+    expect(rows).to_have_count(1)
+    expect(rows.first).to_contain_text("[1] First paper")
+    expect(page.get_by_role("heading", name="Saved references (1 of 2)")).to_be_visible()
+    page.get_by_role("button", name="Overview", exact=True).click()
+    page.get_by_role("button", name="References", exact=True).click()
+    expect(filter_control).to_have_value("READ")
+    page.get_by_role("button", name="Add reference", exact=True).click()
+    expect(page.get_by_label("Reference number", exact=True)).to_have_value("3")
+    expect(page.get_by_label("Publication status", exact=True)).to_have_value("Draft")
+    page.get_by_label("Title", exact=True).fill("Third paper")
+    page.get_by_role("button", name="Save reference", exact=True).click()
+    expect(page.get_by_role("heading", name="Saved references (1 of 3)")).to_be_visible()
+    expect(filter_control).to_have_value("READ")
+    rows.first.get_by_label("Reading status", exact=True).select_option("READING")
+    expect(rows).to_have_count(0)
+    expect(page.get_by_text("No references match this reading status.")).to_be_visible()
+    page.reload()
+    page.get_by_role("button", name="References", exact=True).click()
+    expect(filter_control).to_have_value("ALL")
+    expect(rows).to_have_count(3)
+    expect(status).to_have_value("READING")
+
+    def reject(route):
+        route.fulfill(status=503, json={"detail": "Reading update unavailable"})
+
+    page.route("**/references/*", reject)
+    status.select_option("READ")
+    expect(status).to_be_enabled()
+    expect(status).to_have_value("READING")
+    expect(page.get_by_text("Reading update unavailable", exact=True)).to_be_visible()
+
+
+def test_page_stylesheet_loads(browser_app):
+    page, _, _, _, _ = browser_app
+    expect(page.locator(".brand-mark")).to_have_css("width", "40px")
+    expect(page.locator("body")).to_have_css("margin", "0px")
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+
+
+def test_search_disclosure_preserves_choice_and_exposes_progress(browser_app):
+    page, url, gate, embedder, _ = browser_app
+    disclosure = page.locator(".search-disclosure")
+    expect(page.get_by_placeholder("Add a search query")).to_be_visible()
+    page.get_by_role("button", name="Find papers", exact=True).click()
+    expect(page.locator(".paper-row")).to_have_count(15)
+    page.reload()
+    expect(page.locator(".paper-row")).to_have_count(15)
+    expect(disclosure).not_to_have_attribute("open", "")
+    gate.clear()
+    embedder.model = "visual-refresh-test"
+    page.get_by_role("button", name="Find papers", exact=True).click()
+    expect(page.locator(".search-notice .search-status")).to_have_text(
+        "Embedding papers and scoring relevance…"
+    )
+    expect(disclosure).not_to_have_attribute("open", "")
+    disclosure.locator("summary").first.click()
+    expect(page.get_by_placeholder("Add a search query")).to_be_visible()
+    gate.set()
+    expect(page.get_by_role("button", name="Find papers", exact=True)).to_be_enabled()
+    expect(disclosure).to_have_attribute("open", "")
+    checkbox = page.locator(".query-option input[type=checkbox]").first
+    checkbox.uncheck()
+    expect(page.get_by_text("Enable at least one search query.")).to_be_visible()
+    disclosure.locator("summary").first.click()
+    expect(page.get_by_text("Enable at least one search query.")).to_be_visible()
+
+
+def test_failed_search_notice_visible_with_configuration_closed(browser_app):
+    page, url, _, _, _ = browser_app
+    page.request.post(url + "/search")
+    page.reload()
+    expect(page.locator(".paper-row")).to_have_count(15)
+    history = page.request.get(url + "/searches").json()
+    history.insert(
+        0,
+        {
+            **history[0],
+            "id": "failed-visual-run",
+            "status": "FAILED",
+            "errorMessage": "Search provider unavailable.",
+        },
+    )
+    page.route("**/searches", lambda route: route.fulfill(json=history))
+    page.reload()
+    expect(page.locator(".search-disclosure")).not_to_have_attribute("open", "")
+    expect(page.get_by_text("Search provider unavailable.", exact=True)).to_be_visible()
+    expect(
+        page.get_by_text("Results from your last successful search are still available.")
+    ).to_be_visible()
+    expect(page.locator(".paper-row")).to_have_count(15)
+
+
+def test_manual_edit_confirmation_visible_with_search_closed(browser_app):
+    page, url, _, _, _ = browser_app
+    page.request.post(url + "/search")
+    paper = page.request.get(url + "/papers").json()[0]
+    page.request.patch(url + "/papers/" + paper["id"], data={"isRelevant": False})
+    page.reload()
+    expect(page.locator(".paper-row")).to_have_count(14)
+    page.get_by_role("button", name="Find papers", exact=True).click()
+    expect(page.get_by_role("button", name="Run anyway")).to_be_visible()
+    expect(page.locator(".search-disclosure")).not_to_have_attribute("open", "")
+    page.get_by_role("button", name="Run anyway").click()
+    expect(page.locator(".paper-row")).to_have_count(15)

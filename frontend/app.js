@@ -96,6 +96,28 @@ function yearRange(project) {
   if (!project.yearTo) return `From ${project.yearFrom}`;
   return `${project.yearFrom} – ${project.yearTo}`;
 }
+function sortedPapers(papers, order) {
+  const result = [...papers];
+  if (order === 'relevance') return result;
+  const relevance = (a, b) => (b.relevanceScore ?? -1) - (a.relevanceScore ?? -1);
+  const knownFirst = (a, b) => a == null ? (b == null ? 0 : 1) : (b == null ? -1 : 0);
+  return result.sort((a, b) => {
+    if (order === 'citations') {
+      const missing = knownFirst(a.citationCount, b.citationCount);
+      return missing || (b.citationCount - a.citationCount) || relevance(a, b);
+    }
+    if (order === 'newest' || order === 'oldest') {
+      const first = a.publicationDate || (a.publicationYear && String(a.publicationYear));
+      const second = b.publicationDate || (b.publicationYear && String(b.publicationYear));
+      const missing = knownFirst(first, second);
+      const dateOrder = first && second ? first.localeCompare(second) : 0;
+      return missing || (order === 'newest' ? -dateOrder : dateOrder) || relevance(a, b);
+    }
+    const missing = knownFirst(a.title, b.title);
+    return missing || (a.title && b.title ? a.title.localeCompare(b.title, undefined, {sensitivity: 'base'}) : 0)
+      || relevance(a, b);
+  });
+}
 function stat(parent, symbol, value, label) {
   const item = element('div', '', parent, 'stat');
   item.append(icon(symbol));
@@ -174,29 +196,83 @@ async function settings() {
   const response = await fetch('/api/settings/status');
   if (!response.ok) throw new Error('Unable to load provider settings.');
   const status = await response.json();
-  heading('Settings', 'Review how ResearchPilot connects to scholarly and language-model providers.');
+  heading('Settings', 'See which services are configured and how to set them up.');
   tabs('Provider settings');
-  const layout = element('div', '', content, 'workspace');
-  const providers = panel(layout, 'Connected providers', 'sliders');
-  const list = element('dl', '', providers, 'details-list');
-  for (const [label, value] of [
-    ['Scholarly metadata', `${status.scholarlyProvider} · available without an API key`],
-    ['OpenAlex API key', status.openAlexApiKeyConfigured ? 'Configured' : 'Not configured (optional)'],
-    ['OpenAlex email', status.openAlexEmailConfigured ? 'Configured' : 'Not configured (optional)'],
-    ['Embeddings and language model', `${status.llmProvider} · ${status.openAiApiKeyConfigured ? 'API key configured' : 'API key missing'}`],
-    ['Custom OpenAI endpoint', status.customOpenAiEndpointConfigured ? 'Configured' : 'Using default endpoint'],
-    ['Authentication', 'API keys are never sent to the browser'],
-  ]) {
-    element('dt', label, list); element('dd', value, list);
-  }
-  const help = panel(layout, 'Configuration', 'bulb');
-  element('p', 'Provider credentials and endpoints are configured with environment variables on the backend.', help, 'muted');
-  element('p', 'Set OPENAI_API_KEY to enable embeddings, query expansion, cluster naming, and explanations. Optional OpenAlex and OpenAI endpoint settings are documented in the project README.', help, 'muted');
-  link('Back to library', '/', help, 'button secondary');
+  const layout = element('div', '', content, 'settings-layout');
+  const services = element('div', '', layout, 'settings-services');
+  const source = panel(services, 'Scholarly papers', 'search', 'settings-panel');
+  const active = element('div', '', source, 'settings-active-source');
+  element('span', 'CURRENT SOURCE', active, 'settings-eyebrow');
+  const providerId = status.scholarlyProvider.toLowerCase();
+  const sourceName = providerId === 'scopus' ? 'Scopus'
+    : providerId === 'openalex' ? 'OpenAlex' : status.scholarlyProvider;
+  element('strong', sourceName, active, 'settings-active-name');
+  element('p', 'Paper titles, authors, citation counts, and links come from this source.', active);
+  const sourceList = element('div', '', source, 'settings-service-list');
+  const serviceRow = (parent, name, description, badge, tone) => {
+    const row = element('div', '', parent, 'settings-service-row');
+    const text = element('div', '', row);
+    element('h3', name, text);
+    element('p', description, text);
+    element('span', badge, row, `settings-status ${tone}`);
+  };
+  serviceRow(sourceList, 'OpenAlex',
+    status.openAlexApiKeyConfigured
+      ? `API key configured · ${status.openAlexEmailConfigured ? 'email configured' : 'email optional'}`
+      : `No API key needed · ${status.openAlexEmailConfigured ? 'email configured' : 'email optional'}`,
+    providerId === 'openalex' ? 'In use' : 'Available',
+    providerId === 'openalex' ? 'settings-status-active' : 'settings-status-neutral');
+  serviceRow(sourceList, 'Scopus',
+    status.elsevierApiKeyConfigured ? 'Elsevier API key configured' : 'Requires an Elsevier API key',
+    providerId === 'scopus' ? 'In use'
+      : status.elsevierApiKeyConfigured ? 'Configured' : 'Not configured',
+    providerId === 'scopus' ? 'settings-status-active'
+      : status.elsevierApiKeyConfigured ? 'settings-status-neutral' : 'settings-status-missing');
+
+  const ai = panel(services, 'Research assistance', 'bulb', 'settings-panel');
+  element('p', 'OpenAI supports query suggestions, relevance scoring, clustering, names, and paper explanations.', ai, 'settings-panel-intro');
+  const aiList = element('div', '', ai, 'settings-service-list');
+  serviceRow(aiList, status.llmProvider,
+    status.openAiApiKeyConfigured ? 'OPENAI_API_KEY is set' : 'Set OPENAI_API_KEY to use AI-assisted search',
+    status.openAiApiKeyConfigured ? 'Configured' : 'Needs setup',
+    status.openAiApiKeyConfigured ? 'settings-status-active' : 'settings-status-missing');
+  serviceRow(aiList, 'API endpoint',
+    status.customOpenAiEndpointConfigured ? 'Using a custom OpenAI-compatible endpoint' : 'Using the default OpenAI endpoint',
+    status.customOpenAiEndpointConfigured ? 'Custom' : 'Default', 'settings-status-neutral');
+
+  const help = panel(layout, 'How to configure', 'sliders', 'settings-panel settings-help');
+  element('p', 'Change these settings in the server’s .env file, then restart ResearchPilot.', help, 'settings-panel-intro');
+  const steps = element('ol', '', help, 'settings-steps');
+  const openAiStep = element('li', '', steps);
+  element('strong', 'Enable research assistance', openAiStep);
+  const openAiText = element('p', '', openAiStep);
+  element('span', 'Set ', openAiText);
+  element('code', 'OPENAI_API_KEY', openAiText);
+  element('span', '. An optional ', openAiText);
+  element('code', 'OPENAI_BASE_URL', openAiText);
+  element('span', ' selects a compatible endpoint.', openAiText);
+  const sourceStep = element('li', '', steps);
+  element('strong', 'Choose a paper source', sourceStep);
+  const sourceText = element('p', '', sourceStep);
+  element('span', 'Set ', sourceText);
+  element('code', 'SCHOLARLY_PROVIDER', sourceText);
+  element('span', ' to openalex or scopus. Scopus also needs ', sourceText);
+  element('code', 'ELSEVIER_API_KEY', sourceText);
+  element('span', '.', sourceText);
+  const optionalStep = element('li', '', steps);
+  element('strong', 'Optional OpenAlex details', optionalStep);
+  const optionalText = element('p', '', optionalStep);
+  element('span', 'Add ', optionalText);
+  element('code', 'OPENALEX_API_KEY', optionalText);
+  element('span', ' or ', optionalText);
+  element('code', 'OPENALEX_EMAIL', optionalText);
+  element('span', ' if you use them.', optionalText);
+  element('p', 'Scopus access can also depend on institutional entitlement and network or VPN access.', help, 'settings-note');
+  element('p', 'Statuses show configuration only; they do not test a live connection. API keys are never sent to the browser.', help, 'settings-note');
+  link('Back to library', '/', help, 'button secondary settings-back');
 }
 function dashboard(projects) {
-  heading('A home for your next research discovery',
-    'Capture your questions, organize your projects, and pick up where you left off.');
+  heading('Your projects', 'Pick up where you left off, or explore a new question.');
   const toolbar = element('div', '', content, 'search-toolbar');
   const searchBox = element('div', '', toolbar, 'search-box');
   searchBox.append(icon('search'));
@@ -207,18 +283,10 @@ function dashboard(projects) {
   const create = link('New project', '/projects/new', toolbar, 'button');
   create.prepend(icon('plus'));
   const filters = element('div', '', content, 'filter-row');
-  element('span', 'Your personal research library', filters, 'chip');
+  element('span', `${projects.length} ${projects.length === 1 ? 'project' : 'projects'} · ${new Set(projects.flatMap(p => p.keywords.map(k => k.toLowerCase()))).size} unique keywords`, filters, 'library-summary');
   element('span', 'Recently updated first', filters, 'sort-label');
-  tabs('All projects', projects.length);
-  const layout = element('div', '', content, 'workspace');
-  const list = panel(layout, 'Saved projects');
+  const list = panel(content, 'Saved projects', 'document', 'library-panel');
   const results = element('div', '', list);
-  const aside = element('aside', '', layout, 'context-column');
-  const overview = panel(aside, 'Library overview', 'document');
-  const stats = element('div', '', overview, 'library-stats');
-  stat(stats, 'document', projects.length, projects.length === 1 ? 'saved project' : 'saved projects');
-  stat(stats, 'tag', new Set(projects.flatMap(p => p.keywords.map(k => k.toLowerCase()))).size, 'unique keywords');
-  note(aside, 'Room for your next idea', 'Keep a question close, give it a project, and return whenever inspiration strikes. Your research starts here.');
   function draw() {
     results.replaceChildren();
     const query = search.value.trim().toLowerCase();
@@ -250,7 +318,7 @@ function dashboard(projects) {
 function detail(project) {
   const breadcrumb = link('Library', '/', content, 'breadcrumb');
   breadcrumb.prepend(icon('arrow'));
-  heading(project.title, 'Your research question, ideas, and preferences. All in one place.');
+  heading(project.title, 'Explore the literature and build your reference library.');
   const actions = element('div', '', content, 'detail-toolbar');
   element('span', 'Saved project', actions, 'chip saved-chip');
   link('Edit project', `/projects/${project.id}/edit`, actions, 'button').prepend(icon('sliders'));
@@ -258,7 +326,7 @@ function detail(project) {
   const overviewTab = element('button', 'Overview', pageTabs, 'selected-tab');
   const referencesTab = element('button', 'References', pageTabs);
   overviewTab.type = referencesTab.type = 'button';
-  const layout = element('div', '', content, 'workspace');
+  const layout = element('div', '', content, 'project-workspace');
   const referencesPanel = element('div', '', content);
   referencesPanel.hidden = true;
   function selectTab(references) {
@@ -269,26 +337,23 @@ function detail(project) {
   }
   overviewTab.addEventListener('click', () => selectTab(false));
   referencesTab.addEventListener('click', () => selectTab(true));
-  const left = element('div', '', layout, 'context-column');
-  const summary = panel(left, 'Research description');
-  element('p', project.researchQuestion, summary, 'research-question');
-  const stats = element('div', '', summary, 'stats');
-  stat(stats, 'calendar', yearRange(project), 'publication years');
-  stat(stats, 'document', project.maxPaperCount ?? 'Not set', 'paper limit');
-  stat(stats, 'tag', project.keywords.length, 'keywords');
-  const keywords = panel(left, 'Research keywords', 'tag');
-  const keywordList = element('div', '', keywords, 'keyword-list detail-keywords');
+  const summary = element('section', '', layout, 'project-summary');
+  const facts = element('div', '', summary, 'project-facts');
+  element('span', `${yearRange(project)} · ${project.maxPaperCount ?? 'Default'} paper limit`, facts);
+  const keywordList = element('div', '', facts, 'keyword-list');
   for (const keyword of project.keywords) element('span', keyword, keywordList, 'keyword');
-  if (!project.keywords.length) element('p', 'No keywords added. Edit your project to add the concepts you want to explore.', keywordList, 'muted');
-  const aside = element('aside', '', layout, 'context-column');
-  const details = panel(aside, 'Project details', 'sliders');
+  const details = element('details', '', summary, 'project-details');
+  element('summary', 'Project details', details);
+  element('h2', 'Research description', details);
+  element('p', project.researchQuestion, details, 'research-question');
   const dl = element('dl', '', details, 'details-list');
-  for (const [label, value] of [['Created', date(project.createdAt)], ['Last updated', date(project.updatedAt)], ['Publication years', yearRange(project)], ['Maximum papers', project.maxPaperCount ?? 'Not specified']]) {
-    element('dt', label, dl); element('dd', String(value), dl);
+  for (const [label, value] of [['Created', date(project.createdAt)], ['Last updated', date(project.updatedAt)]]) {
+    element('dt', label, dl); element('dd', value, dl);
   }
-  note(aside, 'Good research takes shape', 'Your project keeps the starting point of your research in focus. Revisit your question and refine it as your thinking develops.');
-  const management = element('div', '', aside, 'project-management');
+  const management = element('div', '', details, 'project-management');
   const remove = element('button', 'Delete project', management, 'danger');
+  const aside = element('div', '', layout, 'search-configuration');
+  const left = element('div', '', layout, 'project-results');
   const referenceLibrary = renderReferenceLibrary(project, referencesPanel);
   literature(project, left, aside, actions, remove, referenceLibrary);
   remove.addEventListener('click', async () => {
@@ -306,6 +371,15 @@ function renderReferenceLibrary(project, container) {
   const toolbar = element('div', '', container, 'reference-toolbar');
   element('h2', 'Project references', toolbar);
   const addButton = element('button', 'Add reference', toolbar);
+  const readingStatuses = [['TO_READ', 'To read'], ['READING', 'Reading'], ['READ', 'Read']];
+  const filterLabel = element('label', 'Filter by reading status', toolbar, 'reference-reading-filter');
+  const filter = element('select', '', filterLabel);
+  filter.setAttribute('aria-label', 'Filter by reading status');
+  for (const [value, label] of [['ALL', 'All'], ...readingStatuses]) element('option', label, filter).value = value;
+  let references = [];
+  const pendingStatuses = new Set();
+  filter.addEventListener('change', render);
+  toolbar.append(addButton);
   const formBox = element('section', '', container, 'panel reference-form-box');
   formBox.hidden = true;
   const list = element('section', '', container, 'panel reference-list');
@@ -326,9 +400,10 @@ function renderReferenceLibrary(project, container) {
     if (name === 'number') input.min = '1';
     if (name === 'year') { input.min = '1'; input.max = '9999'; }
   }
-  const statusLabel = element('label', 'Status', form);
+  const statusLabel = element('label', 'Publication status', form);
   const status = element('select', '', statusLabel);
   status.name = 'status';
+  status.setAttribute('aria-label', 'Publication status');
   for (const value of ['Draft', 'Submitted', 'Accepted', 'Published']) element('option', value, status).value = value;
   const buttons = element('div', '', form, 'form-actions');
   element('button', 'Save reference', buttons);
@@ -372,7 +447,7 @@ function renderReferenceLibrary(project, container) {
   });
   // The initial load must not notify: the project page's own first refresh waits for it.
   async function refresh({notify = true} = {}) {
-    const references = await api(projectPath);
+    references = await api(projectPath);
     savedIds.clear();
     savedDois.clear();
     references.forEach(reference => {
@@ -382,16 +457,44 @@ function renderReferenceLibrary(project, container) {
       }
     });
     nextNumber = Math.max(0, ...references.map(reference => reference.number)) + 1;
+    render();
+    if (notify) window.dispatchEvent(new Event('references-changed'));
+  }
+  function render() {
+    const visible = references.filter(reference => filter.value === 'ALL' || reference.readingStatus === filter.value);
     list.replaceChildren();
-    sectionHeading(list, `Saved references (${references.length})`);
+    sectionHeading(list, `Saved references (${visible.length} of ${references.length})`);
     if (!references.length) element('p', 'No references yet. Save a search paper or add your own work.', list, 'muted');
-    for (const reference of references) {
+    if (references.length && !visible.length) element('p', 'No references match this reading status.', list, 'muted');
+    for (const reference of visible) {
       const row = element('article', '', list, 'reference-row');
       element('h3', `[${reference.number}] ${reference.title || 'Title unavailable'}`, row);
       const metadata = [reference.authors.join(', '), reference.year, reference.venue, reference.status].filter(Boolean).join(' · ');
       if (metadata) element('p', metadata, row, 'paper-metadata');
       if (reference.doi) element('p', `DOI: ${reference.doi}`, row, 'paper-doi');
       if (reference.notes) element('p', reference.notes, row, 'reference-notes');
+      const readingLabel = element('label', 'Reading status', row, 'reference-reading-status');
+      const readingSelect = element('select', '', readingLabel);
+      readingSelect.setAttribute('aria-label', 'Reading status');
+      for (const [value, label] of readingStatuses) element('option', label, readingSelect).value = value;
+      readingSelect.value = reference.readingStatus;
+      readingSelect.disabled = pendingStatuses.has(reference.id);
+      readingSelect.addEventListener('change', async () => {
+        pendingStatuses.add(reference.id);
+        readingSelect.disabled = true;
+        try {
+          const updated = await api(`${projectPath}/${reference.id}`, {
+            method: 'PATCH', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({readingStatus: readingSelect.value}),
+          });
+          references = references.map(item => item.id === updated.id ? updated : item);
+        } catch (error) {
+          showError(error);
+        } finally {
+          pendingStatuses.delete(reference.id);
+          render();
+        }
+      });
       const actions = element('div', '', row, 'reference-actions');
       if (reference.url) {
         const open = link('Open link', reference.url, actions, 'button secondary');
@@ -418,7 +521,6 @@ function renderReferenceLibrary(project, container) {
         catch (error) { showError(error); }
       });
     }
-    if (notify) window.dispatchEvent(new Event('references-changed'));
   }
   const ready = refresh({notify: false}).catch(showError);
   return {refresh, ready, isSaved: paper => savedIds.has(paper.id) ||
@@ -428,11 +530,14 @@ function literature(project, left, aside, actions, remove, referenceLibrary) {
   const searchButton = element('button', 'Find papers', actions);
   searchButton.prepend(icon('search'));
   const papersPanel = panel(left, 'Papers', 'document');
-  left.insertBefore(papersPanel, left.children[1]);
-  const filterSlot = element('div', '', papersPanel.querySelector('.panel-heading'), 'panel-heading-actions');
   const papersBody = element('div', '', papersPanel);
-  const searchPanel = panel(aside, 'Literature search', 'search');
-  aside.prepend(searchPanel);
+  const searchNotice = element('div', '', aside, 'search-notice');
+  searchNotice.setAttribute('role', 'status');
+  const searchPanel = element('details', '', aside, 'search-disclosure');
+  searchPanel.open = true;
+  element('summary', 'Literature search', searchPanel);
+  let searchDisclosureInitialized = false;
+  searchPanel.querySelector('summary').addEventListener('click', () => { searchDisclosureInitialized = true; });
   const searchBody = element('div', '', searchPanel);
   element('p', 'Loading saved papers…', papersBody, 'muted');
   let busy = false;
@@ -443,6 +548,7 @@ function literature(project, left, aside, actions, remove, referenceLibrary) {
   let displayedRunId;
   let showSetAside = false;
   let openAccessOnly = false;
+  let paperSort = 'relevance';
   // Selected cluster tab, kept across re-renders: 'all' or a group's clusterId (null = Uncategorized).
   let activeGroup = 'all';
   const projectPath = `/${project.id}`;
@@ -463,7 +569,7 @@ function literature(project, left, aside, actions, remove, referenceLibrary) {
     busy = value;
     document.querySelectorAll(".drawer-organize select, .drawer-organize button, .subtopic-menu button, .subtopic-menu select, .rename-form input, .rename-form textarea, .rename-form button, .query-controls input, .query-controls button").forEach(control => { control.disabled = value; });
     searchButton.disabled = value || noEnabledQueries;
-    searchButton.textContent = value ? 'Searching OpenAlex…' : 'Find papers';
+    searchButton.textContent = value ? 'Searching papers…' : 'Find papers';
     if (!value) searchButton.prepend(icon('search'));
     remove.disabled = value;
     editLink.setAttribute('aria-disabled', String(value));
@@ -591,7 +697,6 @@ function literature(project, left, aside, actions, remove, referenceLibrary) {
   }
   function showPapers(papers, history, subtopics) {
     papersBody.replaceChildren();
-    filterSlot.replaceChildren();
     papersPanel.querySelector('h2').textContent = `Papers (${papers.length})`;
     const completed = history.find(run => run.status === 'COMPLETED');
     if (completed) {
@@ -613,14 +718,14 @@ function literature(project, left, aside, actions, remove, referenceLibrary) {
       empty.append(icon('search'));
       element('h3', completed ? 'No papers matched this search' : 'Explore the literature', empty);
       element('p', completed ? 'Try a shorter research topic or a wider year range.'
-        : 'Find real scholarly papers from OpenAlex using your research question.', empty, 'muted');
+        : 'Find real scholarly papers using your research question.', empty, 'muted');
       return;
     }
     const named = new Map((subtopics || []).map(topic => [topic.clusterId, topic]));
     const setAside = papers.filter(p => p.isRelevant === false);
     let visible = showSetAside ? papers : papers.filter(p => p.isRelevant !== false);
     if (openAccessOnly) visible = visible.filter(p => p.accessStatus === 'OPEN_ACCESS');
-    const filters = element('div', '', filterSlot, 'paper-filters');
+    const filters = element('div', '', papersBody, 'paper-filters');
     if (setAside.length) {
       const toggle = element('button', showSetAside
         ? `Hide ${setAside.length} set aside` : `Show ${setAside.length} set aside`,
@@ -631,6 +736,16 @@ function literature(project, left, aside, actions, remove, referenceLibrary) {
       filters, `secondary set-aside-toggle${openAccessOnly ? ' active' : ''}`);
     oaToggle.setAttribute('aria-pressed', String(openAccessOnly));
     oaToggle.addEventListener('click', () => { openAccessOnly = !openAccessOnly; refresh().catch(showError); });
+    const sortSelect = element('select', '', filters, 'paper-sort-select');
+    sortSelect.setAttribute('aria-label', 'Sort papers');
+    for (const [value, label] of [
+      ['relevance', 'Sort: Most relevant'],
+      ['citations', 'Sort: Most cited'],
+      ['newest', 'Sort: Newest first'],
+      ['oldest', 'Sort: Oldest first'],
+      ['title', 'Sort: Title A–Z'],
+    ]) element('option', label, sortSelect).value = value;
+    sortSelect.value = paperSort;
     const clusterIds = [...new Set([...named.keys(), ...papers.map(paper => paper.clusterId)])]
       .filter(id => id !== null && id !== undefined)
       .sort((a, b) => a - b);
@@ -663,7 +778,11 @@ function literature(project, left, aside, actions, remove, referenceLibrary) {
       } catch (error) { showError(error); }
     });
     const detail = element('div', '', papersBody);
-    const list = element('div', '', papersBody, 'paper-list');
+    const results = element('section', '', papersBody, 'paper-results');
+    const resultsHeading = element('div', '', results, 'paper-results-heading');
+    const resultsTitle = element('h3', '', resultsHeading);
+    const resultsCount = element('span', '', resultsHeading, 'paper-results-count');
+    const list = element('div', '', results, 'paper-list');
     let active = null;
     const allButton = element('button', '', tabRow, 'cluster-tab');
     element('span', 'All', allButton);
@@ -686,8 +805,14 @@ function literature(project, left, aside, actions, remove, referenceLibrary) {
       list.replaceChildren();
       const group = index === null ? null : groups[index];
       if (group && group.topic) subtopicHeader(group.topic, detail, subtopics || []);
-      for (const paper of group ? group.members : visible) paperRow(paper, list, named, clusterOptions);
+      const selectedPapers = sortedPapers(group ? group.members : visible, paperSort);
+      resultsTitle.textContent = group ? group.name : 'All papers';
+      resultsCount.textContent = `${selectedPapers.length} ${selectedPapers.length === 1 ? 'result' : 'results'}`;
+      for (const paper of selectedPapers) {
+        paperRow(paper, list, named, clusterOptions);
+      }
     }
+    sortSelect.addEventListener('change', () => { paperSort = sortSelect.value; select(active); });
     const restored = activeGroup === 'all' ? -1 : groups.findIndex(group => group.id === activeGroup);
     select(restored >= 0 ? restored : null);
   }
@@ -818,9 +943,14 @@ function literature(project, left, aside, actions, remove, referenceLibrary) {
   function showSearch(history, savedQueries) {
     noEnabledQueries = Boolean(savedQueries?.length) && !savedQueries.some(item => item.enabled);
     searchBody.replaceChildren();
+    searchNotice.replaceChildren();
+    if (!searchDisclosureInitialized) {
+      searchPanel.open = !history.some(run => run.status === 'COMPLETED');
+      searchDisclosureInitialized = true;
+    }
     const latest = history[0];
     setBusy(latest?.status === 'SEARCHING');
-    element('p', 'OpenAlex searches the enabled queries below with the saved year range. Your description guides suggestions and relevance but is never searched directly.', searchBody, 'field-help');
+    element('p', 'The scholarly source searches the enabled queries below with the saved year range. Your description guides suggestions and relevance but is never searched directly.', searchBody, 'field-help');
     element('span', 'Description', searchBody, 'query-label');
     element('p', latest?.parameters.query ?? project.researchQuestion, searchBody, 'search-query');
     const queryControls = element('div', '', searchBody, 'query-controls');
@@ -873,7 +1003,7 @@ function literature(project, left, aside, actions, remove, referenceLibrary) {
         remove.addEventListener('click', () => queryRequest(`/${saved.id}`, {method: 'DELETE'}));
       }
     }
-    if (noEnabledQueries) element('p', 'Enable at least one search query.', queryControls, 'search-failure');
+    if (noEnabledQueries) element('p', 'Enable at least one search query.', searchNotice, 'search-failure');
     const addForm = element('form', '', queryControls, 'query-add');
     const addInput = element('input', '', addForm);
     addInput.placeholder = 'Add a search query';
@@ -899,18 +1029,18 @@ function literature(project, left, aside, actions, remove, referenceLibrary) {
       for (const query of latest.generatedQueries) element('li', query, queries);
     }
     if (latest?.failedQueries?.length) {
-      element('p', `${latest.failedQueries.length} of ${latest.generatedQueries.length} queries failed; results come from the rest.`, searchBody, 'field-help');
+      element('p', `${latest.failedQueries.length} of ${latest.generatedQueries.length} queries failed; results come from the rest.`, searchNotice, 'field-help');
     }
     if (!latest) {
-      element('p', pendingSearch ? 'Searching scholarly papers…' : 'No search has been run yet.', searchBody, 'search-status');
+      element('p', pendingSearch ? 'Searching scholarly papers…' : 'No search has been run yet.', searchNotice, 'search-status');
       return;
     }
     element('p', busy ? (SEARCH_STAGES[latest.stage] || 'Searching scholarly papers…')
       : latest.status === 'FAILED' ? latest.errorMessage
-      : `${latest.paperCount} papers saved · ${latest.clusterCount} ${latest.clusterCount === 1 ? 'cluster' : 'clusters'} · ${latest.totalFound.toLocaleString()} matches in OpenAlex`,
-      searchBody, latest.status === 'FAILED' ? 'search-failure' : 'search-status');
+      : `${latest.paperCount} papers saved · ${latest.clusterCount} ${latest.clusterCount === 1 ? 'cluster' : 'clusters'} · ${latest.totalFound.toLocaleString()} matches in ${latest.provider}`,
+      searchNotice, latest.status === 'FAILED' ? 'search-failure' : 'search-status');
     if (latest.status === 'FAILED' && history.some(run => run.status === 'COMPLETED')) {
-      element('p', 'Results from your last successful search are still available.', searchBody, 'field-help');
+      element('p', 'Results from your last successful search are still available.', searchNotice, 'field-help');
     }
     const recent = element('details', '', searchBody, 'search-history');
     element('summary', 'Recent searches', recent);
@@ -959,8 +1089,8 @@ function literature(project, left, aside, actions, remove, referenceLibrary) {
     setBusy(true);
     schedulePoll();
     errorBox.hidden = true;
-    searchBody.replaceChildren();
-    element('p', 'Searching OpenAlex and organizing papers…', searchBody, 'search-status');
+    searchNotice.replaceChildren();
+    element('p', 'Searching scholarly papers and organizing results…', searchNotice, 'search-status');
     try {
       await api(`${projectPath}/search${force ? '?force=true' : ''}`, {method: 'POST'});
     } catch (error) {
@@ -969,9 +1099,9 @@ function literature(project, left, aside, actions, remove, referenceLibrary) {
       clearTimeout(timer);
       if (error.code === 'MANUAL_EDITS_PRESENT') {
         setBusy(false);
-        searchBody.replaceChildren();
-        element('p', 'This project has manual changes. A new search will replace them.', searchBody, 'search-failure');
-        element('button', 'Run anyway', searchBody, 'secondary').addEventListener('click', () => runSearch(true));
+        searchNotice.replaceChildren();
+        element('p', 'This project has manual changes. A new search will replace them.', searchNotice, 'search-failure');
+        element('button', 'Run anyway', searchNotice, 'secondary').addEventListener('click', () => runSearch(true));
         return;
       }
       showError(error);

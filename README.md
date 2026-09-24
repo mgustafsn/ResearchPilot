@@ -96,6 +96,8 @@ so cosine 0.25 is 0% and 0.60 is 100%. Stopword-filtered lexical overlap only br
 Papers below 40% are filtered before clustering; the count is shown in the search
 summary.
 Users can set retained papers aside and restore them.
+The paper list can be ordered by relevance, citation count, publication date, or title;
+sorting applies within every subtopic and keeps the selected order when filters refresh.
 The References tab stores selected search papers and manually entered citations,
 including unlinked drafts. Reference numbers and notes belong to the project and
 remain available after later searches. Each saved reference has a separate reading status:
