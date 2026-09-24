@@ -288,6 +288,16 @@ textarea { resize: vertical; min-height: 120px; }
 .reference-row h3 { overflow-wrap: anywhere; }
 .reference-notes { white-space: pre-wrap; overflow-wrap: anywhere; }
 .reference-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.reference-citation-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 8px 12px; margin: .8rem 0; }
+.reference-citation-controls label { min-width: 0; color: var(--muted); font-size: 13px; }
+.reference-citation-controls input[type="number"] { width: 8rem; margin-top: 5px; }
+.reference-cited-state { display: flex; align-items: center; gap: 6px; }
+.reference-cited-state input { width: auto; }
+.reference-save-status { flex-basis: 100%; min-height: 1.2em; color: var(--muted); overflow-wrap: anywhere; }
+.reference-citation-history { overflow-wrap: anywhere; }
+.reference-library-search, .reference-library-year { color: var(--muted); font-size: 13px; }
+.reference-library-search input { min-width: min(22rem, 100%); margin-top: 5px; }
+.reference-library-year input { width: 7rem; margin-top: 5px; }
 .reference-actions .button, .reference-actions button, .card-save { padding: 5px 10px; font-size: 12px; }
 .save-reference { margin-bottom: 18px; padding: 7px 12px; }
 @media (max-width: 640px) { .reference-form { grid-template-columns: 1fr; } }

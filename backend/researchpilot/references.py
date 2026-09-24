@@ -3,7 +3,15 @@
 from typing import Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    HttpUrl,
+    StrictBool,
+    field_validator,
+    model_validator,
+)
 from sqlalchemy import (
     JSON,
     CheckConstraint,
@@ -12,7 +20,6 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
-    func,
     select,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -31,14 +38,28 @@ class ReferenceRow(Base):
             "\"readingStatus\" IN ('TO_READ', 'READING', 'READ')",
             name="ck_reference_reading_status",
         ),
-        UniqueConstraint("projectId", "number"),
+        CheckConstraint(
+            '"citationNumber" IS NULL OR "citationNumber" > 0',
+            name="ck_reference_citation_number_positive",
+        ),
+        CheckConstraint(
+            '"previousCitationNumber" IS NULL OR "previousCitationNumber" > 0',
+            name="ck_reference_previous_citation_number_positive",
+        ),
+        CheckConstraint(
+            '"isCited" OR "citationNumber" IS NULL',
+            name="ck_reference_uncited_has_no_number",
+        ),
+        UniqueConstraint("projectId", "citationNumber"),
         UniqueConstraint("projectId", "doiNormalized"),
         UniqueConstraint("projectId", "paperId"),
     )
     id: Mapped[UUID] = mapped_column(primary_key=True)
     projectId: Mapped[UUID] = mapped_column(ForeignKey("research_projects.id", ondelete="CASCADE"))
     paperId: Mapped[UUID | None] = mapped_column(ForeignKey("papers.id"))
-    number: Mapped[int] = mapped_column(Integer)
+    citationNumber: Mapped[int | None] = mapped_column(Integer)
+    isCited: Mapped[bool] = mapped_column(default=False, server_default="false")
+    previousCitationNumber: Mapped[int | None] = mapped_column(Integer)
     title: Mapped[str | None] = mapped_column(Text)
     authors: Mapped[list] = mapped_column(JSON)
     year: Mapped[int | None] = mapped_column(Integer)
@@ -76,7 +97,14 @@ class ManualReferenceInput(BaseModel):
     notes: str = Field(default="", max_length=5000)
     status: str = Field(default="Draft", pattern="^(Draft|Submitted|Accepted|Published)$")
     readingStatus: ReadingStatus = "TO_READ"
-    number: int | None = Field(default=None, ge=1)
+    isCited: StrictBool = False
+    citationNumber: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def citation_is_consistent(self):
+        if self.citationNumber is not None and not self.isCited:
+            raise ValueError("citationNumber requires isCited to be true")
+        return self
 
     @field_validator("authors")
     @classmethod
@@ -88,16 +116,23 @@ class ManualReferenceInput(BaseModel):
 
 class ReferencePatch(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-    readingStatus: ReadingStatus = Field(default="TO_READ")
-    number: int = Field(default=None, ge=1)
-    notes: str = Field(default=None, max_length=5000)
-    title: str = Field(default=None, min_length=1, max_length=500)
-    authors: list[str] = Field(default=None, max_length=50)
+    readingStatus: ReadingStatus = Field(default=None)
+    isCited: StrictBool = Field(default=None)
+    citationNumber: int | None = Field(default=None, ge=1)
+    notes: str | None = Field(default=None, max_length=5000)
+    title: str | None = Field(default=None, min_length=1, max_length=500)
+    authors: list[str] | None = Field(default=None, max_length=50)
     year: int | None = Field(default=None, ge=1, le=9999)
     venue: str | None = Field(default=None, max_length=300)
     doi: str | None = Field(default=None, max_length=300)
     url: HttpUrl | None = None
     status: str = Field(default=None, pattern="^(Draft|Submitted|Accepted|Published)$")
+
+    @model_validator(mode="after")
+    def citation_is_consistent(self):
+        if self.isCited is False and self.citationNumber is not None:
+            raise ValueError("citationNumber requires isCited to be true")
+        return self
 
     @field_validator("authors")
     @classmethod
@@ -110,6 +145,10 @@ class ReferenceConflict(Exception):
 
 
 class ReferenceMissing(Exception):
+    pass
+
+
+class ReferenceValidation(Exception):
     pass
 
 
@@ -126,25 +165,6 @@ class ReferenceService:
         if row is None or row.projectId != project_id:
             raise ReferenceMissing("Reference not found")
         return row
-
-    def _number(self, project_id, requested, current_id=None):
-        if requested is None:
-            return (
-                self.session.scalar(
-                    select(func.max(ReferenceRow.number)).where(
-                        ReferenceRow.projectId == project_id
-                    )
-                )
-                or 0
-            ) + 1
-        existing = self.session.scalar(
-            select(ReferenceRow.id).where(
-                ReferenceRow.projectId == project_id, ReferenceRow.number == requested
-            )
-        )
-        if existing is not None and existing != current_id:
-            raise ReferenceConflict("Reference number already used in this project")
-        return requested
 
     def _doi(self, project_id, doi, current_id=None):
         key = normalized_doi(doi)
@@ -164,7 +184,9 @@ class ReferenceService:
             "id": row.id,
             "projectId": row.projectId,
             "paperId": row.paperId,
-            "number": row.number,
+            "citationNumber": row.citationNumber,
+            "isCited": row.isCited,
+            "previousCitationNumber": row.previousCitationNumber,
             "manual": row.manual,
             "title": row.title if row.manual else paper.title,
             "authors": row.authors if row.manual else [a.get("name", "") for a in paper.authors],
@@ -181,16 +203,14 @@ class ReferenceService:
     def list(self, project_id):
         self._project(project_id)
         rows = self.session.scalars(
-            select(ReferenceRow)
-            .where(ReferenceRow.projectId == project_id)
-            .order_by(ReferenceRow.number)
+            select(ReferenceRow).where(ReferenceRow.projectId == project_id)
         ).all()
-        return [self._output(row) for row in rows]
+        output = [self._output(row) for row in rows]
+        return sorted(output, key=lambda item: ((item["title"] or "").casefold(), str(item["id"])))
 
     def add_manual(self, project_id, data):
         self._project(project_id)
         values = data.model_dump()
-        number = self._number(project_id, values.pop("number"))
         doi_key = self._doi(project_id, values["doi"])
         values["url"] = str(values["url"]) if values["url"] else None
         row = ReferenceRow(
@@ -198,7 +218,7 @@ class ReferenceService:
             projectId=project_id,
             paperId=None,
             manual=True,
-            number=number,
+            previousCitationNumber=None,
             doiNormalized=doi_key,
             **values,
         )
@@ -233,7 +253,9 @@ class ReferenceService:
             id=uuid4(),
             projectId=project_id,
             paperId=paper_id,
-            number=self._number(project_id, None),
+            citationNumber=None,
+            isCited=False,
+            previousCitationNumber=None,
             title=None,
             authors=[],
             year=None,
@@ -254,10 +276,12 @@ class ReferenceService:
         changes = patch.model_dump(exclude_unset=True)
         if not changes:
             return self._output(row)
-        if "number" in changes:
-            if changes["number"] is None:
-                raise ReferenceConflict("Reference number is required")
-            row.number = self._number(project_id, changes.pop("number"), row.id)
+        requested_cited = changes.pop("isCited", None)
+        citation_supplied = "citationNumber" in changes
+        requested_number = changes.pop("citationNumber", None) if citation_supplied else None
+        resulting_cited = row.isCited if requested_cited is None else requested_cited
+        if citation_supplied and requested_number is not None and not resulting_cited:
+            raise ReferenceValidation("citationNumber requires the reference to be cited")
         if not row.manual and set(changes) - {"notes", "readingStatus"}:
             raise ReferenceConflict("Scholarly metadata cannot be edited")
         if row.manual:
@@ -271,6 +295,16 @@ class ReferenceService:
                 changes["url"] = str(changes["url"])
         for name, value in changes.items():
             setattr(row, name, value)
+        if requested_cited is False:
+            if row.isCited and row.citationNumber is not None:
+                row.previousCitationNumber = row.citationNumber
+            row.isCited = False
+            row.citationNumber = None
+        else:
+            if requested_cited is True:
+                row.isCited = True
+            if citation_supplied:
+                row.citationNumber = requested_number
         self.session.flush()
         return self._output(row)
 

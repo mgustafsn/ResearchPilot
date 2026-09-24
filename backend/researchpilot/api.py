@@ -49,6 +49,7 @@ from .references import (
     ReferenceMissing,
     ReferencePatch,
     ReferenceService,
+    ReferenceValidation,
 )
 
 FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
@@ -112,10 +113,14 @@ def create_app(engine=None, provider=None, embedding_provider=None, llm_provider
     async def reference_conflict(request, exc):
         return JSONResponse(status_code=409, content={"detail": str(exc)})
 
+    @app.exception_handler(ReferenceValidation)
+    async def reference_validation(request, exc):
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
+
     @app.exception_handler(IntegrityError)
     async def reference_integrity(request, exc):
         return JSONResponse(
-            status_code=409, content={"detail": "Reference number or DOI already used"}
+            status_code=409, content={"detail": "Citation number or DOI already used"}
         )
 
     @app.exception_handler(ProjectNotFound)

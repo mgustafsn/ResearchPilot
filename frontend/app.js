@@ -372,16 +372,31 @@ function renderReferenceLibrary(project, container) {
   const savedDois = new Set();
   const doiKey = doi => doi?.trim().toLowerCase().replace(/^(https?:\/\/doi\.org\/|doi:)/, '');
   const toolbar = element('div', '', container, 'reference-toolbar');
-  element('h2', 'Project references', toolbar);
+  element('h2', 'Reference library', toolbar);
   const addButton = element('button', 'Add reference', toolbar);
   const readingStatuses = [['TO_READ', 'To read'], ['READING', 'Reading'], ['READ', 'Read']];
   const filterLabel = element('label', 'Filter by reading status', toolbar, 'reference-reading-filter');
   const filter = element('select', '', filterLabel);
   filter.setAttribute('aria-label', 'Filter by reading status');
   for (const [value, label] of [['ALL', 'All'], ...readingStatuses]) element('option', label, filter).value = value;
+  const citedLabel = element('label', 'Citation status', toolbar, 'reference-reading-filter');
+  const citedFilter = element('select', '', citedLabel);
+  citedFilter.setAttribute('aria-label', 'Filter by citation status');
+  for (const [value, label] of [['ALL', 'All'], ['CITED', 'Cited'], ['NOT_CITED', 'Not cited']]) {
+    element('option', label, citedFilter).value = value;
+  }
+  const searchLabel = element('label', 'Search library', toolbar, 'reference-library-search');
+  const searchFilter = element('input', '', searchLabel);
+  searchFilter.type = 'search'; searchFilter.placeholder = 'Title, author, venue, DOI, or notes';
+  const yearLabel = element('label', 'Year', toolbar, 'reference-library-year');
+  const yearFilter = element('input', '', yearLabel);
+  yearFilter.type = 'number'; yearFilter.min = '1'; yearFilter.max = '9999'; yearFilter.placeholder = 'Any';
   let references = [];
   const pendingStatuses = new Set();
-  filter.addEventListener('change', render);
+  const citationMessages = new Map();
+  for (const control of [filter, citedFilter, searchFilter, yearFilter]) {
+    control.addEventListener(control.tagName === 'SELECT' ? 'change' : 'input', render);
+  }
   toolbar.append(addButton);
   const formBox = element('section', '', container, 'panel reference-form-box');
   formBox.hidden = true;
@@ -391,16 +406,14 @@ function renderReferenceLibrary(project, container) {
   const fields = [
     ['title', 'Title', 'text'], ['authors', 'Authors (one per line)', 'textarea'],
     ['year', 'Year', 'number'], ['venue', 'Journal or venue', 'text'],
-    ['doi', 'DOI', 'text'], ['url', 'Link', 'url'],
-    ['number', 'Reference number', 'number'], ['notes', 'Notes', 'textarea'],
+    ['doi', 'DOI', 'text'], ['url', 'Link', 'url'], ['notes', 'Notes', 'textarea'],
   ];
   for (const [name, labelText, type] of fields) {
     const label = element('label', labelText, form);
     const input = element(type === 'textarea' ? 'textarea' : 'input', '', label);
     input.name = name;
     if (type !== 'textarea') input.type = type;
-    if (name === 'title' || name === 'number') input.required = true;
-    if (name === 'number') input.min = '1';
+    if (name === 'title') input.required = true;
     if (name === 'year') { input.min = '1'; input.max = '9999'; }
   }
   const statusLabel = element('label', 'Publication status', form);
@@ -413,19 +426,18 @@ function renderReferenceLibrary(project, container) {
   element('button', 'Cancel', buttons, 'secondary').addEventListener('click', event => {
     event.preventDefault(); formBox.hidden = true;
   });
-  function openForm(reference = null, suggestedNumber = 1) {
+  function openForm(reference = null) {
     editing = reference;
     form.reset();
     for (const [name] of fields) {
-      form.elements[name].value = reference?.[name] ?? (name === 'number' ? suggestedNumber : '');
+      form.elements[name].value = reference?.[name] ?? '';
     }
     form.elements.authors.value = (reference?.authors || []).join('\n');
     status.value = reference?.status || 'Draft';
     formBox.hidden = false;
     form.elements.title.focus();
   }
-  let nextNumber = 1;
-  addButton.addEventListener('click', () => openForm(null, nextNumber));
+  addButton.addEventListener('click', () => openForm());
   form.addEventListener('submit', async event => {
     event.preventDefault();
     const data = {
@@ -435,7 +447,6 @@ function renderReferenceLibrary(project, container) {
       venue: form.elements.venue.value.trim() || null,
       doi: form.elements.doi.value.trim() || null,
       url: form.elements.url.value.trim() || null,
-      number: Number(form.elements.number.value),
       notes: form.elements.notes.value,
       status: status.value,
     };
@@ -459,23 +470,104 @@ function renderReferenceLibrary(project, container) {
         if (reference.doi) savedDois.add(doiKey(reference.doi));
       }
     });
-    nextNumber = Math.max(0, ...references.map(reference => reference.number)) + 1;
     render();
     if (notify) window.dispatchEvent(new Event('references-changed'));
   }
   function render() {
-    const visible = references.filter(reference => filter.value === 'ALL' || reference.readingStatus === filter.value);
+    const query = searchFilter.value.trim().toLocaleLowerCase();
+    const selectedYear = yearFilter.value ? Number(yearFilter.value) : null;
+    const visible = references.filter(reference => {
+      const readingMatches = filter.value === 'ALL' || reference.readingStatus === filter.value;
+      const citedMatches = citedFilter.value === 'ALL' ||
+        (citedFilter.value === 'CITED' ? reference.isCited : !reference.isCited);
+      const yearMatches = selectedYear === null || reference.year === selectedYear;
+      const searchable = [reference.title, ...(reference.authors || []), reference.venue,
+        reference.doi, reference.notes].filter(Boolean).join(' ').toLocaleLowerCase();
+      return readingMatches && citedMatches && yearMatches && (!query || searchable.includes(query));
+    });
     list.replaceChildren();
     sectionHeading(list, `Saved references (${visible.length} of ${references.length})`);
     if (!references.length) element('p', 'No references yet. Save a search paper or add your own work.', list, 'muted');
-    if (references.length && !visible.length) element('p', 'No references match this reading status.', list, 'muted');
+    if (references.length && !visible.length) element('p', 'No references match these filters.', list, 'muted');
     for (const reference of visible) {
       const row = element('article', '', list, 'reference-row');
-      element('h3', `[${reference.number}] ${reference.title || 'Title unavailable'}`, row);
+      element('h3', reference.title || 'Title unavailable', row);
       const metadata = [reference.authors.join(', '), reference.year, reference.venue, reference.status].filter(Boolean).join(' · ');
       if (metadata) element('p', metadata, row, 'paper-metadata');
       if (reference.doi) element('p', `DOI: ${reference.doi}`, row, 'paper-doi');
       if (reference.notes) element('p', reference.notes, row, 'reference-notes');
+      const citationControls = element('div', '', row, 'reference-citation-controls');
+      const citedControl = element('label', '', citationControls, 'reference-cited-state');
+      const citedCheckbox = element('input', '', citedControl);
+      citedCheckbox.type = 'checkbox'; citedCheckbox.checked = reference.isCited;
+      citedCheckbox.setAttribute('aria-label', 'Cited in paper');
+      citedControl.append(document.createTextNode(' Cited in paper'));
+      const citationStatus = element('span', '', citationControls, 'reference-save-status');
+      citationStatus.setAttribute('role', 'status'); citationStatus.setAttribute('aria-live', 'polite');
+      citationStatus.textContent = citationMessages.get(reference.id) || '';
+      citedCheckbox.addEventListener('change', async () => {
+        citedCheckbox.disabled = true; citationStatus.textContent = 'Saving…';
+        try {
+          const updated = await api(`${projectPath}/${reference.id}`, {
+            method: 'PATCH', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({isCited: citedCheckbox.checked}),
+          });
+          references = references.map(item => item.id === updated.id ? updated : item);
+          citationMessages.set(reference.id, 'Saved');
+          render();
+        } catch (error) {
+          citedCheckbox.checked = reference.isCited; citedCheckbox.disabled = false;
+          citationStatus.textContent = `Not saved: ${error.message}`;
+        }
+      });
+      if (reference.isCited) {
+        const numberLabel = element('label', 'Citation number (optional)', citationControls);
+        const numberInput = element('input', '', numberLabel);
+        numberInput.type = 'number'; numberInput.min = '1';
+        numberInput.value = reference.citationNumber ?? '';
+        const saveNumber = element('button', 'Save number', citationControls, 'secondary');
+        saveNumber.type = 'button';
+        saveNumber.addEventListener('click', async () => {
+          saveNumber.disabled = true; citationStatus.textContent = 'Saving…';
+          try {
+            const updated = await api(`${projectPath}/${reference.id}`, {
+              method: 'PATCH', headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({citationNumber: numberInput.value ? Number(numberInput.value) : null}),
+            });
+            references = references.map(item => item.id === updated.id ? updated : item);
+            citationMessages.set(reference.id, 'Saved');
+            render();
+          } catch (error) {
+            saveNumber.disabled = false; citationStatus.textContent = `Not saved: ${error.message}`;
+          }
+        });
+      } else if (reference.previousCitationNumber !== null) {
+        element('span', `Previously cited as ${reference.previousCitationNumber}`, citationControls,
+          'reference-citation-history');
+        const restore = element('button', 'Restore number', citationControls, 'secondary');
+        restore.type = 'button';
+        restore.addEventListener('click', async () => {
+          restore.disabled = true; citationStatus.textContent = 'Saving…';
+          try {
+            let updated = await api(`${projectPath}/${reference.id}`, {method: 'PATCH',
+              headers: {'Content-Type': 'application/json'}, body: JSON.stringify({isCited: true})});
+            references = references.map(item => item.id === updated.id ? updated : item);
+            try {
+              updated = await api(`${projectPath}/${reference.id}`, {method: 'PATCH',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({citationNumber: reference.previousCitationNumber})});
+              references = references.map(item => item.id === updated.id ? updated : item);
+              citationMessages.set(reference.id, 'Saved');
+              render();
+            } catch (error) {
+              citationMessages.set(reference.id, `Number not restored: ${error.message}`);
+              render();
+            }
+          } catch (error) {
+            restore.disabled = false; citationStatus.textContent = `Not saved: ${error.message}`;
+          }
+        });
+      }
       const readingLabel = element('label', 'Reading status', row, 'reference-reading-status');
       const readingSelect = element('select', '', readingLabel);
       readingSelect.setAttribute('aria-label', 'Reading status');
@@ -510,16 +602,14 @@ function renderReferenceLibrary(project, container) {
       element('button', 'Edit', actions, 'secondary').addEventListener('click', () => {
         if (reference.manual) openForm(reference);
         else {
-          const number = window.prompt('Reference number', reference.number);
-          if (number === null) return;
           const notes = window.prompt('Notes', reference.notes);
           if (notes === null) return;
           api(`${projectPath}/${reference.id}`, {method: 'PATCH', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({number: Number(number), notes})}).then(() => refresh()).catch(showError);
+            body: JSON.stringify({notes})}).then(() => refresh()).catch(showError);
         }
       });
       element('button', 'Remove', actions, 'secondary').addEventListener('click', async () => {
-        if (!window.confirm(`Remove reference [${reference.number}] from this project?`)) return;
+        if (!window.confirm(`Remove “${reference.title || 'this reference'}” from this project?`)) return;
         try { await api(`${projectPath}/${reference.id}`, {method: 'DELETE'}); await refresh(); }
         catch (error) { showError(error); }
       });

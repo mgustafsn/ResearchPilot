@@ -83,6 +83,90 @@ def test_reading_status_is_project_owned(search_client):
     )
 
 
+def test_citation_lifecycle_and_field_preservation(client):
+    project = client.post("/api/projects", json=DATA).json()
+    refs = f"/api/projects/{project['id']}/references"
+    created = client.post(
+        refs,
+        json={
+            "title": "Zeta paper",
+            "notes": "Keep me",
+            "readingStatus": "READING",
+        },
+    ).json()
+    assert (created["isCited"], created["citationNumber"], created["previousCitationNumber"]) == (
+        False,
+        None,
+        None,
+    )
+    target = f"{refs}/{created['id']}"
+    cited = client.patch(target, json={"isCited": True}).json()
+    assert cited["isCited"] is True and cited["citationNumber"] is None
+    numbered = client.patch(target, json={"citationNumber": 4}).json()
+    assert numbered["citationNumber"] == 4
+    uncited = client.patch(target, json={"isCited": False}).json()
+    assert (uncited["isCited"], uncited["citationNumber"], uncited["previousCitationNumber"]) == (
+        False,
+        None,
+        4,
+    )
+    repeated = client.patch(target, json={"isCited": False}).json()
+    assert repeated["previousCitationNumber"] == 4
+    recited = client.patch(target, json={"isCited": True}).json()
+    assert recited["citationNumber"] is None
+    restored = client.patch(target, json={"citationNumber": 4}).json()
+    assert restored["citationNumber"] == 4
+    assert restored["previousCitationNumber"] == 4
+    assert restored["notes"] == "Keep me"
+    assert restored["readingStatus"] == "READING"
+
+
+def test_citation_validation_uniqueness_and_rollback(client):
+    project = client.post("/api/projects", json=DATA).json()
+    refs = f"/api/projects/{project['id']}/references"
+    invalid_payloads = [
+        {"title": "Bad", "citationNumber": 2},
+        {"title": "Bad", "isCited": False, "citationNumber": 2},
+        {"title": "Bad", "isCited": "yes"},
+        {"title": "Bad", "citationNumber": 0},
+        {"title": "Bad", "previousCitationNumber": 2},
+    ]
+    for payload in invalid_payloads:
+        assert client.post(refs, json=payload).status_code == 422
+    first = client.post(
+        refs, json={"title": "First", "isCited": True, "citationNumber": 7, "notes": "one"}
+    ).json()
+    second = client.post(refs, json={"title": "Second", "notes": "two"}).json()
+    second_path = f"{refs}/{second['id']}"
+    assert client.patch(second_path, json={"citationNumber": 7}).status_code == 422
+    assert client.patch(second_path, json={"isCited": True}).status_code == 200
+    conflict = client.patch(
+        second_path, json={"citationNumber": 7, "notes": "must roll back", "readingStatus": "READ"}
+    )
+    assert conflict.status_code == 409
+    unchanged = next(item for item in client.get(refs).json() if item["id"] == second["id"])
+    assert unchanged["isCited"] is True
+    assert unchanged["citationNumber"] is None
+    assert unchanged["notes"] == "two"
+    assert unchanged["readingStatus"] == "TO_READ"
+    assert (
+        next(item for item in client.get(refs).json() if item["id"] == first["id"])[
+            "citationNumber"
+        ]
+        == 7
+    )
+
+
+def test_reference_library_orders_by_title_and_allows_many_unnumbered(client):
+    project = client.post("/api/projects", json=DATA).json()
+    refs = f"/api/projects/{project['id']}/references"
+    for title in ["zebra", "Alpha", "middle"]:
+        response = client.post(refs, json={"title": title})
+        assert response.status_code == 201
+        assert response.json()["citationNumber"] is None
+    assert [item["title"] for item in client.get(refs).json()] == ["Alpha", "middle", "zebra"]
+
+
 def test_postgres_reading_status_upgrade(client, engine):
     """Simulate a pre-016 library, then apply the real upgrade and check backfill."""
     from pathlib import Path
@@ -112,3 +196,53 @@ def test_postgres_reading_status_upgrade(client, engine):
     for value in ["NULL", "'INVALID'"]:
         with pytest.raises(IntegrityError), engine.begin() as connection:
             connection.exec_driver_sql(f'UPDATE project_references SET "readingStatus" = {value}')
+
+
+def test_postgres_citation_tracking_upgrade_discards_existing_numbers(client, engine):
+    """The 018 upgrade intentionally starts every existing library item uncited."""
+    from pathlib import Path
+
+    from sqlalchemy import text
+
+    if engine.dialect.name != "postgresql":
+        pytest.skip("PostgreSQL migration verification")
+    root = Path(__file__).parents[2]
+    project = client.post("/api/projects", json=DATA).json()
+    refs = f"/api/projects/{project['id']}/references"
+    first = client.post(refs, json={"title": "Existing one"}).json()
+    second = client.post(refs, json={"title": "Existing two"}).json()
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            """
+            ALTER TABLE project_references
+            DROP CONSTRAINT uq_reference_project_citation_number,
+            DROP CONSTRAINT ck_reference_previous_citation_number_positive,
+            DROP CONSTRAINT ck_reference_uncited_has_no_number,
+            DROP COLUMN "isCited",
+            DROP COLUMN "previousCitationNumber";
+            ALTER TABLE project_references RENAME COLUMN "citationNumber" TO number;
+            """
+        )
+        connection.execute(
+            text("UPDATE project_references SET number = CASE WHEN id = :id THEN 2 ELSE 9 END"),
+            {"id": first["id"]},
+        )
+        connection.exec_driver_sql(
+            """
+            ALTER TABLE project_references ALTER COLUMN number SET NOT NULL;
+            ALTER TABLE project_references ADD CONSTRAINT
+                "project_references_projectId_number_key" UNIQUE ("projectId", number);
+            """
+        )
+        connection.exec_driver_sql(
+            (root / "migrations/018_reference_citation_tracking.sql").read_text()
+        )
+        rows = connection.execute(
+            text(
+                'SELECT "citationNumber", "isCited", "previousCitationNumber" '
+                "FROM project_references ORDER BY id"
+            )
+        ).all()
+    assert rows == [(None, False, None), (None, False, None)]
+    assert client.get(refs).status_code == 200
+    assert {item["id"] for item in client.get(refs).json()} == {first["id"], second["id"]}

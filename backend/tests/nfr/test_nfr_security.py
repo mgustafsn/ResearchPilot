@@ -194,7 +194,7 @@ def test_nfr_sec_4_write_endpoints_reject_bad_input(search_client_named):
         ("post", url + "/queries/custom", {"query": "x" * 161}),
         ("patch", f"{url}/queries/{query_id}", {}),
         ("post", url + "/references", {"title": "t", "bogus": 1}),
-        ("patch", f"{url}/references/{reference_id}", {"number": 0}),
+        ("patch", f"{url}/references/{reference_id}", {"citationNumber": 0}),
     ]
     for method, path, body in cases:
         response = getattr(client, method)(path, json=body)

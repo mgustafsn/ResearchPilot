@@ -66,14 +66,20 @@ def test_reference_library_survives_search_and_merges_matching_manual_doi(search
     )
     assert manual.status_code == 201
     reference = manual.json()
-    assert reference["number"] == 1
+    assert reference["citationNumber"] is None
+    assert reference["isCited"] is False
+    assert reference["previousCitationNumber"] is None
     assert reference["url"] is None
     assert (
         client.post(url + "/references", json={"title": "Duplicate", "doi": paper.doi}).status_code
         == 409
     )
     assert (
-        client.post(url + "/references", json={"title": "Second", "number": 1}).status_code == 409
+        client.post(
+            url + "/references",
+            json={"title": "Second", "isCited": True, "citationNumber": 1},
+        ).status_code
+        == 201
     )
     assert client.post(url + "/search").status_code == 200
     paper_id = client.get(url + "/papers").json()[0]["id"]
@@ -95,9 +101,9 @@ def test_reference_edit_is_project_scoped_and_scholarly_metadata_is_immutable(se
     reference = client.post(url + "/references/from-paper/" + paper_id).json()
     path = url + "/references/" + reference["id"]
     assert client.patch(path, json={"title": "Invented title"}).status_code == 409
-    changed = client.patch(path, json={"number": 3, "notes": "Read later"})
+    changed = client.patch(path, json={"isCited": True, "citationNumber": 3, "notes": "Read later"})
     assert changed.status_code == 200
-    assert changed.json()["number"] == 3
+    assert changed.json()["citationNumber"] == 3
     other = client.post("/api/projects", json=DATA).json()
     other_path = f"/api/projects/{other['id']}/references/{reference['id']}"
     assert client.patch(other_path, json={"notes": "No"}).status_code == 404

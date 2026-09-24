@@ -273,13 +273,13 @@ def test_reference_reading_workflow(browser_app):
     filter_control = page.get_by_label("Filter by reading status")
     filter_control.select_option("READ")
     expect(rows).to_have_count(1)
-    expect(rows.first).to_contain_text("[1] First paper")
+    expect(rows.first).to_contain_text("First paper")
     expect(page.get_by_role("heading", name="Saved references (1 of 2)")).to_be_visible()
     page.get_by_role("button", name="Overview", exact=True).click()
     page.get_by_role("button", name="References", exact=True).click()
     expect(filter_control).to_have_value("READ")
     page.get_by_role("button", name="Add reference", exact=True).click()
-    expect(page.get_by_label("Reference number", exact=True)).to_have_value("3")
+    expect(page.get_by_label("Title", exact=True)).to_have_value("")
     expect(page.get_by_label("Publication status", exact=True)).to_have_value("Draft")
     page.get_by_label("Title", exact=True).fill("Third paper")
     page.get_by_role("button", name="Save reference", exact=True).click()
@@ -287,7 +287,7 @@ def test_reference_reading_workflow(browser_app):
     expect(filter_control).to_have_value("READ")
     rows.first.get_by_label("Reading status", exact=True).select_option("READING")
     expect(rows).to_have_count(0)
-    expect(page.get_by_text("No references match this reading status.")).to_be_visible()
+    expect(page.get_by_text("No references match these filters.")).to_be_visible()
     page.reload()
     page.get_by_role("button", name="References", exact=True).click()
     expect(filter_control).to_have_value("ALL")
@@ -302,6 +302,57 @@ def test_reference_reading_workflow(browser_app):
     expect(status).to_be_enabled()
     expect(status).to_have_value("READING")
     expect(page.get_by_text("Reading update unavailable", exact=True)).to_be_visible()
+
+
+def test_reference_citation_controls_filters_and_restore_conflict(browser_app):
+    page, url, _, _, _ = browser_app
+    first = page.request.post(
+        url + "/references",
+        data={
+            "title": "Alpha methods",
+            "year": 2024,
+            "notes": "Important baseline",
+            "isCited": True,
+            "citationNumber": 3,
+        },
+    ).json()
+    second = page.request.post(
+        url + "/references", data={"title": "Beta findings", "year": 2023}
+    ).json()
+    page.reload()
+    page.get_by_role("button", name="References", exact=True).click()
+    expect(page.get_by_role("heading", name="Reference library")).to_be_visible()
+    rows = page.locator(".reference-row")
+    expect(rows).to_have_count(2)
+    assert rows.locator("h3").all_text_contents() == ["Alpha methods", "Beta findings"]
+
+    page.get_by_label("Filter by citation status").select_option("CITED")
+    expect(rows).to_have_count(1)
+    page.get_by_label("Filter by reading status").select_option("TO_READ")
+    page.get_by_label("Search library").fill("baseline")
+    page.locator(".reference-library-year input").fill("2024")
+    expect(rows).to_have_count(1)
+    page.get_by_label("Search library").fill("")
+    page.locator(".reference-library-year input").fill("")
+    page.get_by_label("Filter by citation status").select_option("ALL")
+
+    alpha = rows.filter(has_text="Alpha methods")
+    cited = alpha.get_by_label("Cited in paper")
+    cited.focus()
+    cited.press("Space")
+    expect(alpha.get_by_text("Previously cited as 3")).to_be_visible()
+    page.request.patch(
+        url + "/references/" + second["id"], data={"isCited": True, "citationNumber": 3}
+    )
+    alpha.get_by_role("button", name="Restore number").click()
+    expect(alpha.get_by_label("Cited in paper")).to_be_checked()
+    expect(alpha.get_by_label("Citation number (optional)")).to_have_value("")
+    expect(alpha.get_by_text("Number not restored:", exact=False)).to_be_visible()
+    stored = page.request.get(url + "/references").json()
+    restored = next(item for item in stored if item["id"] == first["id"])
+    assert restored["isCited"] is True
+    assert restored["citationNumber"] is None
+    assert restored["previousCitationNumber"] == 3
 
 
 def test_page_stylesheet_loads(browser_app):
