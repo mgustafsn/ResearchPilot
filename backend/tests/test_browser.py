@@ -107,7 +107,9 @@ def test_settings_and_project_references(browser_app):
     page, url, _, _, _ = browser_app
     page.goto(page.url.split("/projects/")[0] + "/settings")
     expect(page.get_by_role("heading", name="Settings")).to_be_visible()
-    expect(page.get_by_text("OpenAlex · available without an API key")).to_be_visible()
+    expect(
+        page.get_by_text("Test scholarly provider · available without an API key")
+    ).to_be_visible()
     page.goto(page.url.replace("/settings", "/projects/" + url.rsplit("/", 1)[-1]))
     page.get_by_role("button", name="References", exact=True).click()
     page.get_by_role("button", name="Add reference").click()

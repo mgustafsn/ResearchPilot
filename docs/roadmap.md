@@ -15,6 +15,7 @@ sequence number. Each feature gets a branch `feat/<name>`, a note in
 | Query expansion | The LLM proposes related queries; the user can toggle them; retrieval runs every query | [query-expansion](features/query-expansion.md) |
 | Open access | Open-access status, the open-access filter, and publication/full-text links | [open-access](features/open-access.md) |
 | Description-driven queries | Search only short keyword queries, never the long research description; a user-editable query list | [description-driven-queries](features/description-driven-queries.md) |
+| Scopus retrieval | Optional Scopus Search source with server-side API key and normalized paper metadata | [scopus-retrieval](features/scopus-retrieval.md) |
 
 ### Relevance
 

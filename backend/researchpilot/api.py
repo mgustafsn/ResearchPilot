@@ -12,7 +12,13 @@ from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from .config import database_url, openai_headers, openalex_headers
+from .config import (
+    database_url,
+    openai_headers,
+    openalex_headers,
+    scopus_headers,
+    scholarly_provider,
+)
 from .domain import (
     PaperPatch,
     Project,
@@ -28,6 +34,7 @@ from .service import ProjectNotFound, ProjectService
 from .papers import ProjectPaper, ProviderError, SearchQuery, SearchRun, Subtopic
 from .providers.openai import OpenAIEmbeddingProvider, OpenAILlmProvider
 from .providers.openalex import OpenAlexProvider
+from .providers.scopus import ScopusProvider
 from .search import DuplicateQuery, InvalidQuery, NoEnabledQueries, SearchService
 from .search_persistence import (
     ExplanationUnavailable,
@@ -52,13 +59,20 @@ def create_app(engine=None, provider=None, embedding_provider=None, llm_provider
         app.state.engine = (
             engine if engine is not None else create_engine(database_url(), pool_pre_ping=True)
         )
+        selected_name = scholarly_provider() if provider is None else "openalex"
         async with (
-            httpx.AsyncClient(headers=openalex_headers(), timeout=15.0) as client,
+            httpx.AsyncClient(
+                headers=scopus_headers() if selected_name == "scopus" else openalex_headers(),
+                timeout=15.0,
+            ) as client,
             httpx.AsyncClient(headers=openai_headers(), timeout=30.0) as openai_client,
         ):
+            selected_provider = provider or (
+                ScopusProvider(client) if selected_name == "scopus" else OpenAlexProvider(client)
+            )
             app.state.search = SearchService(
                 app.state.engine,
-                provider or OpenAlexProvider(client),
+                selected_provider,
                 embedding_provider or OpenAIEmbeddingProvider(openai_client),
                 llm_provider or OpenAILlmProvider(openai_client),
             )
@@ -130,9 +144,10 @@ def create_app(engine=None, provider=None, embedding_provider=None, llm_provider
     @app.get("/api/settings/status")
     def settings_status():
         return {
-            "scholarlyProvider": "OpenAlex",
+            "scholarlyProvider": app.state.search.provider.name,
             "openAlexApiKeyConfigured": bool(os.environ.get("OPENALEX_API_KEY", "").strip()),
             "openAlexEmailConfigured": bool(os.environ.get("OPENALEX_EMAIL", "").strip()),
+            "elsevierApiKeyConfigured": bool(os.environ.get("ELSEVIER_API_KEY", "").strip()),
             "llmProvider": "OpenAI",
             "openAiApiKeyConfigured": bool(os.environ.get("OPENAI_API_KEY", "").strip()),
             "customOpenAiEndpointConfigured": bool(os.environ.get("OPENAI_BASE_URL", "").strip()),

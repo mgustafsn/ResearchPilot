@@ -1,6 +1,6 @@
 # ResearchPilot
 
-Manage research projects, retrieve real scholarly papers from OpenAlex,
+Manage research projects, retrieve real scholarly papers from OpenAlex or Scopus,
 deduplicate them, score relevance by embedding similarity to the research question,
 cluster them into groups, have an LLM name each cluster and explain why a paper belongs in
 it, browse the result as a research map with staged search progress and a
@@ -81,7 +81,7 @@ Review the draft PR before marking it ready or merging it.
 
 ## Current behavior
 
-The demo implements project CRUD, OpenAlex retrieval, deterministic DOI/identity/title
+The demo implements project CRUD, OpenAlex or Scopus retrieval, deterministic DOI/identity/title
 deduplication, embedding-based relevance scoring and clustering, structured
 LLM subtopic naming, a research map, paper details, on-demand explanations, manual
 organization, and provider-derived open-access labels and links.
@@ -104,8 +104,13 @@ Scholarly metadata comes only from `PaperProvider` implementations. Embeddings a
 LLM interpretation use separate interfaces. OpenAI supplies title/abstract embeddings
 and structured cluster names and explanations; it never supplies authoritative paper
 metadata. Configuration and API keys stay on the server in environment variables.
-Set `OPENAI_API_KEY` before searching. Optional `OPENAI_BASE_URL`, `OPENALEX_API_KEY`,
-and `OPENALEX_EMAIL` configure the adapters.
+Set `OPENAI_API_KEY` before searching. OpenAlex remains the default scholarly source.
+To use Scopus, set `SCHOLARLY_PROVIDER=scopus` and `ELSEVIER_API_KEY` in `.env`.
+Scopus access also depends on your institution's API entitlement and network or VPN.
+The Scopus adapter uses the STANDARD search view, which can be available even when
+abstract access is not granted. Relevance and clustering then use titles when Scopus
+does not provide abstracts. Its API key is sent only from the backend. Optional `OPENAI_BASE_URL`,
+`OPENALEX_API_KEY`, and `OPENALEX_EMAIL` configure the other adapters.
 
 Successful searches atomically replace paper associations and subtopics. Failed
 searches preserve previous results and manual edits. Shared paper metadata is
