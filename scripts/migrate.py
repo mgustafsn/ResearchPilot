@@ -43,6 +43,7 @@ def _already_applied(inspector, migration_number: int) -> bool:
         13: ("search_queries",),
         14: ("project_references",),
         15: ("search_runs",),
+        16: ("project_references",),
     }
     required_tables = requirements[migration_number]
     if not all(table in tables for table in required_tables):
@@ -73,6 +74,7 @@ def _already_applied(inspector, migration_number: int) -> bool:
         12: {"search_runs": {"filteredCount"}},
         13: {"search_queries": {"userAdded"}},
         15: {"search_runs": {"failedQueries"}},
+        16: {"project_references": {"readingStatus"}},
     }
     return all(
         expected <= columns(table)

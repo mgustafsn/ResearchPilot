@@ -98,7 +98,12 @@ summary.
 Users can set retained papers aside and restore them.
 The References tab stores selected search papers and manually entered citations,
 including unlinked drafts. Reference numbers and notes belong to the project and
-remain available after later searches.
+remain available after later searches. Each saved reference has a separate reading status:
+To read, Reading, or Read. Change it directly in the References tab and filter the list
+by status. New and existing references default to To read; progress belongs to each
+project and survives later searches. The filter resets to All when reopening a project.
+Apply migration `016_reference_reading_status.sql` before starting this version
+(the local launcher applies pending migrations automatically).
 
 Scholarly metadata comes only from `PaperProvider` implementations. Embeddings and
 LLM interpretation use separate interfaces. OpenAI supplies title/abstract embeddings
@@ -172,6 +177,9 @@ provider timeouts and the 30-second outer deadline return 504 with code
 - `/api/projects/{id}/references`: GET list and POST manual citation.
 - `/api/projects/{id}/references/from-paper/{paperId}`: POST to save a search paper.
 - `/api/projects/{id}/references/{referenceId}`: PATCH or DELETE a saved reference.
+  Reference responses include `readingStatus` (`TO_READ`, `READING`, `READ`); creation
+  and PATCH accept it independently of publication `status`. Omitted PATCH fields
+  remain unchanged; null or invalid reading statuses return 422.
 - `/api/settings/status`: GET provider configuration flags without credentials.
 
 Invalid input returns 422, missing resources 404, conflicts 409, and database failures

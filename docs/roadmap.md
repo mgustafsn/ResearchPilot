@@ -36,6 +36,12 @@ sequence number. Each feature gets a branch `feat/<name>`, a note in
 | Manual organization | Rename, move, set aside/restore, and confirm before a search replaces edits | [manual-organization](features/manual-organization.md) |
 | Subtopic management | Create, delete, and merge subtopics with paper reassignment | [subtopic-management](features/subtopic-management.md) |
 
+### Reading workflow
+
+| Feature | What it does | Note |
+| --- | --- | --- |
+| Reference reading status | Track To read, Reading, and Read per saved reference and filter the library | [reading-status](features/reading-status.md) |
+
 ### Interface
 
 | Feature | What it does | Note |

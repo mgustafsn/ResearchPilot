@@ -1,18 +1,36 @@
 """Project-owned citations, independent of replaceable search results."""
 
+from typing import Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
-from sqlalchemy import JSON, ForeignKey, Integer, String, Text, UniqueConstraint, func, select
+from sqlalchemy import (
+    JSON,
+    CheckConstraint,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+    select,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .persistence import Base, ProjectRow
 from .search_persistence import PaperRow, ProjectPaperRow
 
 
+ReadingStatus = Literal["TO_READ", "READING", "READ"]
+
+
 class ReferenceRow(Base):
     __tablename__ = "project_references"
     __table_args__ = (
+        CheckConstraint(
+            "\"readingStatus\" IN ('TO_READ', 'READING', 'READ')",
+            name="ck_reference_reading_status",
+        ),
         UniqueConstraint("projectId", "number"),
         UniqueConstraint("projectId", "doiNormalized"),
         UniqueConstraint("projectId", "paperId"),
@@ -30,6 +48,9 @@ class ReferenceRow(Base):
     url: Mapped[str | None] = mapped_column(Text)
     notes: Mapped[str] = mapped_column(Text)
     status: Mapped[str | None] = mapped_column(String(20))
+    readingStatus: Mapped[str] = mapped_column(
+        String(20), default="TO_READ", server_default="TO_READ"
+    )
     manual: Mapped[bool]
 
 
@@ -54,6 +75,7 @@ class ManualReferenceInput(BaseModel):
     url: HttpUrl | None = None
     notes: str = Field(default="", max_length=5000)
     status: str = Field(default="Draft", pattern="^(Draft|Submitted|Accepted|Published)$")
+    readingStatus: ReadingStatus = "TO_READ"
     number: int | None = Field(default=None, ge=1)
 
     @field_validator("authors")
@@ -66,6 +88,7 @@ class ManualReferenceInput(BaseModel):
 
 class ReferencePatch(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    readingStatus: ReadingStatus = Field(default="TO_READ")
     number: int = Field(default=None, ge=1)
     notes: str = Field(default=None, max_length=5000)
     title: str = Field(default=None, min_length=1, max_length=500)
@@ -151,6 +174,7 @@ class ReferenceService:
             "url": row.url if row.manual else (paper.publicationUrl or paper.sourceUrl),
             "sourceUrl": paper.sourceUrl if paper else None,
             "notes": row.notes,
+            "readingStatus": row.readingStatus,
             "status": row.status if row.manual else "Published",
         }
 
@@ -234,7 +258,7 @@ class ReferenceService:
             if changes["number"] is None:
                 raise ReferenceConflict("Reference number is required")
             row.number = self._number(project_id, changes.pop("number"), row.id)
-        if not row.manual and set(changes) - {"notes"}:
+        if not row.manual and set(changes) - {"notes", "readingStatus"}:
             raise ReferenceConflict("Scholarly metadata cannot be edited")
         if row.manual:
             if "doi" in changes:
