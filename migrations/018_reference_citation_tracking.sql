@@ -9,8 +9,9 @@ ALTER COLUMN "citationNumber" DROP NOT NULL,
 ADD COLUMN "isCited" BOOLEAN NOT NULL DEFAULT false,
 ADD COLUMN "previousCitationNumber" INTEGER;
 
+-- Start every reference uncited, but keep its old number so it can be restored.
 UPDATE project_references
-SET "citationNumber" = NULL, "isCited" = false, "previousCitationNumber" = NULL;
+SET "previousCitationNumber" = "citationNumber", "citationNumber" = NULL, "isCited" = false;
 
 ALTER TABLE project_references
 ADD CONSTRAINT ck_reference_previous_citation_number_positive

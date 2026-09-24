@@ -198,8 +198,8 @@ def test_postgres_reading_status_upgrade(client, engine):
             connection.exec_driver_sql(f'UPDATE project_references SET "readingStatus" = {value}')
 
 
-def test_postgres_citation_tracking_upgrade_discards_existing_numbers(client, engine):
-    """The 018 upgrade intentionally starts every existing library item uncited."""
+def test_postgres_citation_tracking_upgrade_keeps_old_numbers_as_previous(client, engine):
+    """The 018 upgrade starts every item uncited but keeps its old number restorable."""
     from pathlib import Path
 
     from sqlalchemy import text
@@ -239,10 +239,15 @@ def test_postgres_citation_tracking_upgrade_discards_existing_numbers(client, en
         )
         rows = connection.execute(
             text(
-                'SELECT "citationNumber", "isCited", "previousCitationNumber" '
-                "FROM project_references ORDER BY id"
+                'SELECT id, "citationNumber", "isCited", "previousCitationNumber" '
+                "FROM project_references"
             )
         ).all()
-    assert rows == [(None, False, None), (None, False, None)]
-    assert client.get(refs).status_code == 200
-    assert {item["id"] for item in client.get(refs).json()} == {first["id"], second["id"]}
+    assert {str(row[0]): row[1:] for row in rows} == {
+        first["id"]: (None, False, 2),
+        second["id"]: (None, False, 9),
+    }
+    listed = {item["id"]: item for item in client.get(refs).json()}
+    assert listed.keys() == {first["id"], second["id"]}
+    assert listed[first["id"]]["previousCitationNumber"] == 2
+    assert listed[first["id"]]["isCited"] is False
