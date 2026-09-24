@@ -416,8 +416,32 @@ def test_failed_source_warning(browser_app):
     page.route("**/searches", with_failed_source)
     page.reload()
     expect(
-        page.get_by_text("Scopus was unavailable; results come from OpenAlex only.")
+        page.get_by_text(
+            "Scopus was unavailable for one or more queries; results may be incomplete."
+        )
     ).to_be_visible()
+
+
+def test_failed_source_warning_when_every_source_failed_somewhere(browser_app):
+    # Each source failed on a different query, so both appear and no "only" claim is made.
+    page, url, _, _, _ = browser_app
+    page.request.post(url + "/search")
+
+    def with_failed_sources(route):
+        response = route.fetch()
+        runs = response.json()
+        runs[0] |= {"provider": "OpenAlex+Scopus", "failedSources": ["OpenAlex", "Scopus"]}
+        route.fulfill(response=response, json=runs)
+
+    page.route("**/searches", with_failed_sources)
+    page.reload()
+    expect(
+        page.get_by_text(
+            "OpenAlex and Scopus were unavailable for one or more queries; "
+            "results may be incomplete."
+        )
+    ).to_be_visible()
+    expect(page.get_by_text("only.", exact=False)).to_have_count(0)
 
 
 def test_no_failed_source_warning_by_default(browser_app):

@@ -13,9 +13,10 @@ both sources return can therefore keep the OpenAlex abstract and gain the Scopus
 count. After semantic ranking, unique papers are capped at the project's paper limit.
 
 If one source fails and another returns papers, the search completes. The run records
-the failed source names in `failedSources`, and the search panel says, for example,
-"Scopus was unavailable; results come from OpenAlex only." If the survivors find nothing,
-that query fails as before. Logs name the source and error code, never the query text.
+each source that failed on at least one query in `failedSources`, and the search panel
+says, for example, "Scopus was unavailable for one or more queries; results may be
+incomplete." If the survivors of a query find nothing, that query fails as before.
+Logs name the source and error code, never the query text.
 
 Migration 017 adds `search_runs.failedSources` (default empty). `/api/settings/status`
 keeps `scholarlyProvider` (now the joined name, such as `OpenAlex+Scopus`) and adds

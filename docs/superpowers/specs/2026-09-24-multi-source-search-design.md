@@ -70,8 +70,9 @@ without mapping.
 
 Next to the existing failed-queries line in the search panel: when the latest run has
 `failedSources`, it shows
-*"Scopus was unavailable; results come from OpenAlex only."* The names are the run's
-failed sources and the remaining sources, joined with "and" when there are more than two.
+*"Scopus was unavailable for one or more queries; results may be incomplete."*
+`failedSources` lists every source that failed on at least one query, so the message does
+not claim which source the results came from. Names are joined with "and".
 
 ## 7. Error handling summary
 

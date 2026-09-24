@@ -1037,8 +1037,8 @@ function literature(project, left, aside, actions, remove, referenceLibrary) {
     if (latest?.failedSources?.length) {
       const joinNames = (names) => names.length < 2 ? names.join('')
         : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
-      const remaining = latest.provider.split('+').filter((name) => !latest.failedSources.includes(name));
-      element('p', `${joinNames(latest.failedSources)} ${latest.failedSources.length > 1 ? 'were' : 'was'} unavailable; results come from ${joinNames(remaining)} only.`, searchNotice, 'field-help');
+      // A source may have failed on only some queries, so do not claim which source the results came from.
+      element('p', `${joinNames(latest.failedSources)} ${latest.failedSources.length > 1 ? 'were' : 'was'} unavailable for one or more queries; results may be incomplete.`, searchNotice, 'field-help');
     }
     if (!latest) {
       element('p', pendingSearch ? 'Searching scholarly papers…' : 'No search has been run yet.', searchNotice, 'search-status');

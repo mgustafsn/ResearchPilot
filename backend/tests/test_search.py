@@ -1086,3 +1086,27 @@ def test_postgres_failed_sources_upgrade(search_client, engine):
         connection.exec_driver_sql((root / "migrations/017_failed_sources.sql").read_text())
     assert applied(inspect(engine), 17)
     assert client.get(url + "/searches").json()[0]["failedSources"] == []
+
+
+class _FailsOnQuery(RecordingProvider):
+    def __init__(self, name, failing_query):
+        super().__init__()
+        self.name = name
+        self.failing_query = failing_query
+
+    async def search(self, parameters):
+        if parameters.query == self.failing_query:
+            raise ProviderError("RATE_LIMITED")
+        return await super().search(parameters)
+
+
+def test_sources_failing_on_different_queries_are_all_reported(engine):
+    openalex = _FailsOnQuery("OpenAlex", failing_query="alpha")
+    scopus = _FailsOnQuery("Scopus", failing_query="bravo")
+    with _multi_client(engine, openalex, scopus) as client:
+        project = client.post("/api/projects", json=DATA | {"keywords": ["alpha", "bravo"]})
+        url = f"/api/projects/{project.json()['id']}"
+        run = client.post(url + "/search").json()
+    assert run["status"] == "COMPLETED"
+    assert run["failedQueries"] == []
+    assert run["failedSources"] == ["OpenAlex", "Scopus"]
