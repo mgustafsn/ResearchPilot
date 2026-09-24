@@ -113,6 +113,8 @@ and structured cluster names and explanations; it never supplies authoritative p
 metadata. Configuration and API keys stay on the server in environment variables.
 Set `OPENAI_API_KEY` before searching. OpenAlex remains the default scholarly source.
 To use Scopus, set `SCHOLARLY_PROVIDER=scopus` and `ELSEVIER_API_KEY` in `.env`.
+Set `SCHOLARLY_PROVIDER=openalex,scopus` to search both; duplicates merge, and if one
+source fails the search completes with the other and says so.
 Scopus access also depends on your institution's API entitlement and network or VPN.
 The Scopus adapter uses the STANDARD search view, which can be available even when
 abstract access is not granted. Relevance and clustering then use titles when Scopus

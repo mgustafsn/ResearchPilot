@@ -1,6 +1,6 @@
 # Multi-source search
 
-Date: 2026-09-24 · Status: design approved, awaiting spec review
+Date: 2026-09-24 · Status: implemented (v0.21.0)
 
 ## Problem
 
@@ -64,7 +64,7 @@ without mapping.
 
 - `config.scholarly_provider()` becomes `scholarly_providers()`. It returns an ordered list, trims whitespace, lower-cases, and drops duplicates. An empty list or unknown names raise `RuntimeError`. If `scopus` is listed, `ELSEVIER_API_KEY` is still required. The default stays `openalex`.
 - `api.create_app` opens one `httpx.AsyncClient` per selected source, because each source has its own headers, through an `AsyncExitStack`. With one source it uses the bare provider. With several, it wraps them in `MultiSourceProvider`. The `provider=` test injection is unchanged.
-- `/api/settings/status` replaces `scholarlyProvider` with `scholarlyProviders`, a list of ids such as `["openalex", "scopus"]`. In Settings, every listed source is marked **In use**.
+- `/api/settings/status` keeps `scholarlyProvider`, now the joined name such as `OpenAlex+Scopus`, and adds `scholarlyProviders`, the display names such as `["OpenAlex", "Scopus"]`. The change is additive, so the existing UI and tests keep working. In Settings, every listed source is marked **In use**.
 
 ## 6. Interface
 

@@ -16,6 +16,7 @@ sequence number. Each feature gets a branch `feat/<name>`, a note in
 | Open access | Open-access status, the open-access filter, and publication/full-text links | [open-access](features/open-access.md) |
 | Description-driven queries | Search only short keyword queries, never the long research description; a user-editable query list | [description-driven-queries](features/description-driven-queries.md) |
 | Scopus retrieval | Optional Scopus Search source with server-side API key and normalized paper metadata | [scopus-retrieval](features/scopus-retrieval.md) |
+| Multi-source search | Search OpenAlex and Scopus together; duplicates merge and a failed source is reported | [multi-source-search](features/multi-source-search.md) |
 
 ### Relevance
 
