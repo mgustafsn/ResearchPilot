@@ -35,13 +35,21 @@ def scopus_headers():
     return headers
 
 
-def scholarly_provider():
-    name = os.environ.get("SCHOLARLY_PROVIDER", "openalex").strip().lower()
-    if name not in {"openalex", "scopus"}:
-        raise RuntimeError("SCHOLARLY_PROVIDER must be openalex or scopus")
-    if name == "scopus" and not os.environ.get("ELSEVIER_API_KEY", "").strip():
+SCHOLARLY_PROVIDERS = ("openalex", "scopus")
+
+
+def scholarly_providers():
+    """Ordered, de-duplicated source ids from a comma list such as "openalex,scopus"."""
+    names = []
+    for value in os.environ.get("SCHOLARLY_PROVIDER", "openalex").split(","):
+        name = value.strip().lower()
+        if name and name not in names:
+            names.append(name)
+    if not names or any(name not in SCHOLARLY_PROVIDERS for name in names):
+        raise RuntimeError("SCHOLARLY_PROVIDER must list openalex and/or scopus, comma-separated")
+    if "scopus" in names and not os.environ.get("ELSEVIER_API_KEY", "").strip():
         raise RuntimeError("Set ELSEVIER_API_KEY to use the Scopus provider")
-    return name
+    return names
 
 
 def openai_base_url():

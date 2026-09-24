@@ -17,7 +17,7 @@ from .config import (
     openai_headers,
     openalex_headers,
     scopus_headers,
-    scholarly_provider,
+    scholarly_providers,
 )
 from .domain import (
     PaperPatch,
@@ -59,7 +59,7 @@ def create_app(engine=None, provider=None, embedding_provider=None, llm_provider
         app.state.engine = (
             engine if engine is not None else create_engine(database_url(), pool_pre_ping=True)
         )
-        selected_name = scholarly_provider() if provider is None else "openalex"
+        selected_name = scholarly_providers()[0] if provider is None else "openalex"
         async with (
             httpx.AsyncClient(
                 headers=scopus_headers() if selected_name == "scopus" else openalex_headers(),

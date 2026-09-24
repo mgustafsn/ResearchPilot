@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from researchpilot.api import create_app
-from researchpilot.config import scholarly_provider, scopus_headers
+from researchpilot.config import scholarly_providers, scopus_headers
 from researchpilot.papers import ProviderError, SearchParameters
 from researchpilot.providers.scopus import ScopusProvider, normalize_entry
 
@@ -97,11 +97,45 @@ def test_scopus_rejects_invalid_results_and_maps_authentication():
 def test_scopus_configuration(monkeypatch):
     monkeypatch.setenv("SCHOLARLY_PROVIDER", "scopus")
     monkeypatch.setenv("ELSEVIER_API_KEY", "test-secret")
-    assert scholarly_provider() == "scopus"
+    assert scholarly_providers() == ["scopus"]
     assert scopus_headers()["X-ELS-APIKey"] == "test-secret"
     monkeypatch.delenv("ELSEVIER_API_KEY")
     with pytest.raises(RuntimeError, match="ELSEVIER_API_KEY"):
-        scholarly_provider()
+        scholarly_providers()
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, ["openalex"]),
+        ("openalex,scopus", ["openalex", "scopus"]),
+        (" OpenAlex , SCOPUS ", ["openalex", "scopus"]),
+        ("scopus,openalex", ["scopus", "openalex"]),
+        ("openalex,openalex", ["openalex"]),
+        ("openalex,,scopus", ["openalex", "scopus"]),
+    ],
+)
+def test_scholarly_provider_lists(monkeypatch, value, expected):
+    monkeypatch.setenv("ELSEVIER_API_KEY", "test-secret")
+    if value is None:
+        monkeypatch.delenv("SCHOLARLY_PROVIDER", raising=False)
+    else:
+        monkeypatch.setenv("SCHOLARLY_PROVIDER", value)
+    assert scholarly_providers() == expected
+
+
+@pytest.mark.parametrize("value", ["", " , ", "pubmed", "openalex,pubmed"])
+def test_scholarly_provider_rejects_invalid_lists(monkeypatch, value):
+    monkeypatch.setenv("SCHOLARLY_PROVIDER", value)
+    with pytest.raises(RuntimeError, match="SCHOLARLY_PROVIDER"):
+        scholarly_providers()
+
+
+def test_scopus_in_a_list_still_requires_its_key(monkeypatch):
+    monkeypatch.setenv("SCHOLARLY_PROVIDER", "openalex,scopus")
+    monkeypatch.delenv("ELSEVIER_API_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="ELSEVIER_API_KEY"):
+        scholarly_providers()
 
 
 def test_app_selects_scopus_without_exposing_key(engine, monkeypatch):
