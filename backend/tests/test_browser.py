@@ -355,6 +355,127 @@ def test_reference_citation_controls_filters_and_restore_conflict(browser_app):
     assert restored["previousCitationNumber"] == 3
 
 
+def test_reference_notes_editor_keeps_drafts_and_saves(browser_app):
+    page, url, _, _, _ = browser_app
+    page.request.post(url + "/references", data={"title": "Alpha methods", "notes": "Old note"})
+    page.request.post(url + "/search")
+    paper = page.request.get(url + "/papers").json()[0]
+    page.request.post(url + "/references/from-paper/" + paper["id"])
+    page.reload()
+    page.get_by_role("button", name="References", exact=True).click()
+    rows = page.locator(".reference-row")
+    alpha = rows.filter(has_text="Alpha methods")
+    patches = []
+    page.on("request", lambda r: patches.append(r.url) if r.method == "PATCH" else None)
+
+    alpha.get_by_role("button", name="Edit notes").click()
+    notes = alpha.get_by_label("Notes", exact=True)
+    expect(notes).to_have_value("Old note")
+    expect(notes).to_have_attribute("maxlength", "5000")
+    notes.fill("Draft text")
+    expect(alpha.get_by_text("10 / 5000")).to_be_visible()
+    expect(alpha.get_by_text("Unsaved changes")).to_be_visible()
+    alpha.get_by_role("button", name="Cancel", exact=True).click()
+    expect(alpha.get_by_label("Notes", exact=True)).to_have_count(0)
+    expect(alpha.locator(".reference-notes")).to_have_text("Old note")
+    assert patches == []
+
+    alpha.get_by_role("button", name="Edit notes").click()
+    notes.fill("Line one\nLine two")
+    page.get_by_label("Search library").fill("no such reference")
+    expect(alpha).to_have_count(0)
+    page.get_by_label("Search library").fill("")
+    expect(notes).to_have_value("Line one\nLine two")
+    page.get_by_role("button", name="Overview", exact=True).click()
+    page.get_by_role("button", name="References", exact=True).click()
+    alpha.get_by_label("Reading status", exact=True).select_option("READING")
+    expect(alpha.get_by_label("Reading status", exact=True)).to_be_enabled()
+    page.evaluate("window.dispatchEvent(new Event('references-changed'))")
+    expect(notes).to_have_value("Line one\nLine two")
+    notes.focus()
+    page.evaluate("window.dispatchEvent(new Event('references-changed'))")
+    expect(notes).to_be_focused()
+    assert page.evaluate(
+        "(() => { const e = new Event('beforeunload', {cancelable: true});"
+        " window.dispatchEvent(e); return e.defaultPrevented; })()"
+    )
+
+    def reject(route):
+        route.fulfill(status=503, json={"detail": "Notes unavailable"})
+
+    page.route("**/references/*", reject)
+    alpha.get_by_role("button", name="Save notes").click()
+    expect(alpha.get_by_text("Not saved: Notes unavailable")).to_be_visible()
+    expect(notes).to_have_value("Line one\nLine two")
+    page.unroute("**/references/*", reject)
+    alpha.get_by_role("button", name="Save notes").click()
+    expect(page.locator(".reference-toolbar [role=status]")).to_have_text("Notes saved")
+    expect(alpha.get_by_label("Notes", exact=True)).to_have_count(0)
+    expect(alpha.locator(".reference-notes")).to_have_css("white-space", "pre-wrap")
+    assert not page.evaluate(
+        "(() => { const e = new Event('beforeunload', {cancelable: true});"
+        " window.dispatchEvent(e); return e.defaultPrevented; })()"
+    )
+    stored = page.request.get(url + "/references").json()
+    assert next(r for r in stored if r["title"] == "Alpha methods")["notes"] == (
+        "Line one\nLine two"
+    )
+    assert next(r for r in stored if r["title"] == "Alpha methods")["readingStatus"] == "READING"
+
+    provider_row = rows.filter(has_text=paper["title"])
+    expect(provider_row.get_by_role("button", name="Edit", exact=True)).to_have_count(0)
+    provider_row.get_by_role("button", name="Add notes").click()
+    provider_row.get_by_label("Notes", exact=True).fill("<img src=x onerror=window.pwned=1>")
+    provider_row.get_by_role("button", name="Save notes").click()
+    expect(provider_row.locator(".reference-notes")).to_have_text(
+        "<img src=x onerror=window.pwned=1>"
+    )
+    assert page.evaluate("window.pwned === undefined")
+    page.reload()
+    page.get_by_role("button", name="References", exact=True).click()
+    expect(provider_row.get_by_role("button", name="Edit notes")).to_be_visible()
+
+
+def test_reference_metadata_form_and_remove_respect_notes(browser_app):
+    page, url, _, _, _ = browser_app
+    reference = page.request.post(
+        url + "/references", data={"title": "Alpha methods", "notes": "First note"}
+    ).json()
+    page.reload()
+    page.get_by_role("button", name="References", exact=True).click()
+    row = page.locator(".reference-row").filter(has_text="Alpha")
+    row.get_by_role("button", name="Edit", exact=True).click()
+    expect(page.locator(".reference-form").get_by_label("Notes", exact=True)).to_be_hidden()
+    page.request.patch(url + "/references/" + reference["id"], data={"notes": "Newer note"})
+    page.get_by_label("Title", exact=True).fill("Alpha methods revised")
+    page.get_by_role("button", name="Save reference", exact=True).click()
+    expect(row.locator("h3")).to_have_text("Alpha methods revised")
+    expect(row.locator(".reference-notes")).to_have_text("Newer note")
+
+    page.get_by_role("button", name="Add reference", exact=True).click()
+    expect(page.locator(".reference-form").get_by_label("Notes", exact=True)).to_be_visible()
+    page.get_by_role("button", name="Cancel", exact=True).click()
+
+    row.get_by_role("button", name="Edit notes").click()
+    row.get_by_label("Notes", exact=True).fill("Unsaved thought")
+    messages = []
+
+    def answer(dialog):
+        messages.append(dialog.message)
+        dialog.dismiss() if len(messages) == 1 else dialog.accept()
+
+    page.on("dialog", answer)
+    row.get_by_role("button", name="Remove").click()
+    expect(row.get_by_label("Notes", exact=True)).to_have_value("Unsaved thought")
+    assert "unsaved notes" in messages[0]
+    row.get_by_role("button", name="Remove").click()
+    expect(page.locator(".reference-row")).to_have_count(0)
+    assert not page.evaluate(
+        "(() => { const e = new Event('beforeunload', {cancelable: true});"
+        " window.dispatchEvent(e); return e.defaultPrevented; })()"
+    )
+
+
 def test_page_stylesheet_loads(browser_app):
     page, _, _, _, _ = browser_app
     expect(page.locator(".brand-mark")).to_have_css("width", "40px")

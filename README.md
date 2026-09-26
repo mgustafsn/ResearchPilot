@@ -100,7 +100,9 @@ The paper list can be ordered by relevance, citation count, publication date, or
 sorting applies within every subtopic and keeps the selected order when filters refresh.
 The References tab stores selected search papers and manually entered citations,
 including unlinked drafts. Notes belong to the project and remain available after later
-searches. A reference can be marked as cited, optionally with a unique citation number;
+searches. Add or edit notes inline on any reference with explicit Save and Cancel; unsaved
+drafts survive filtering, tab switches, and refreshes, and leaving the page with an unsaved
+draft asks for confirmation. A reference can be marked as cited, optionally with a unique citation number;
 unciting keeps the old number so it can be restored. References are listed by title.
 Each saved reference has a separate reading status: To read, Reading, or Read. Change it
 directly in the References tab and filter the list by status. New and existing

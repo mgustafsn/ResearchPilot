@@ -287,6 +287,13 @@ textarea { resize: vertical; min-height: 120px; }
 .reference-row:last-child { border-bottom: 0; }
 .reference-row h3 { overflow-wrap: anywhere; }
 .reference-notes { white-space: pre-wrap; overflow-wrap: anywhere; }
+.reference-notes-editor { display: grid; gap: 8px; margin: 10px 0; }
+.reference-notes-editor label { display: grid; gap: 6px; font-weight: 600; }
+.reference-notes-editor textarea { width: 100%; box-sizing: border-box; resize: vertical; font-weight: 400; }
+.reference-notes-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.reference-notes-footer .reference-save-status { flex: 1 1 auto; flex-basis: auto; }
+.reference-notes-counter { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.reference-toolbar-status { order: 3; color: var(--muted); font-size: 12px; }
 .reference-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .reference-citation-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 8px 12px; margin: .8rem 0; }
 .reference-citation-controls label { min-width: 0; color: var(--muted); font-size: 13px; }

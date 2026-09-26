@@ -391,9 +391,17 @@ function renderReferenceLibrary(project, container) {
   const yearLabel = element('label', 'Year', toolbar, 'reference-library-year');
   const yearFilter = element('input', '', yearLabel);
   yearFilter.type = 'number'; yearFilter.min = '1'; yearFilter.max = '9999'; yearFilter.placeholder = 'Any';
+  const toolbarStatus = element('span', '', toolbar, 'reference-toolbar-status');
+  toolbarStatus.setAttribute('role', 'status'); toolbarStatus.setAttribute('aria-live', 'polite');
   let references = [];
   const pendingStatuses = new Set();
   const citationMessages = new Map();
+  // Notes drafts live only in page memory, keyed by reference ID, so rerenders keep them.
+  const noteDrafts = new Map();
+  const unsaved = draft => draft.state === 'saving' || draft.text !== draft.saved;
+  window.addEventListener('beforeunload', event => {
+    if ([...noteDrafts.values()].some(unsaved)) { event.preventDefault(); event.returnValue = ''; }
+  });
   for (const control of [filter, citedFilter, searchFilter, yearFilter]) {
     control.addEventListener(control.tagName === 'SELECT' ? 'change' : 'input', render);
   }
@@ -434,6 +442,8 @@ function renderReferenceLibrary(project, container) {
     }
     form.elements.authors.value = (reference?.authors || []).join('\n');
     status.value = reference?.status || 'Draft';
+    // Existing references edit notes only in the notes editor, so this form cannot overwrite them.
+    form.elements.notes.closest('label').hidden = Boolean(reference);
     formBox.hidden = false;
     form.elements.title.focus();
   }
@@ -447,9 +457,9 @@ function renderReferenceLibrary(project, container) {
       venue: form.elements.venue.value.trim() || null,
       doi: form.elements.doi.value.trim() || null,
       url: form.elements.url.value.trim() || null,
-      notes: form.elements.notes.value,
       status: status.value,
     };
+    if (!editing) data.notes = form.elements.notes.value;
     try {
       await api(editing ? `${projectPath}/${editing.id}` : projectPath, {
         method: editing ? 'PATCH' : 'POST', headers: {'Content-Type': 'application/json'},
@@ -462,6 +472,9 @@ function renderReferenceLibrary(project, container) {
   // The initial load must not notify: the project page's own first refresh waits for it.
   async function refresh({notify = true} = {}) {
     references = await api(projectPath);
+    for (const id of noteDrafts.keys()) {
+      if (!references.some(reference => reference.id === id)) noteDrafts.delete(id);
+    }
     savedIds.clear();
     savedDois.clear();
     references.forEach(reference => {
@@ -485,6 +498,9 @@ function renderReferenceLibrary(project, container) {
         reference.doi, reference.notes].filter(Boolean).join(' ').toLocaleLowerCase();
       return readingMatches && citedMatches && yearMatches && (!query || searchable.includes(query));
     });
+    const active = document.activeElement;
+    const focusedNote = active?.dataset?.noteFor && list.contains(active)
+      ? {id: active.dataset.noteFor, start: active.selectionStart, end: active.selectionEnd} : null;
     list.replaceChildren();
     sectionHeading(list, `Saved references (${visible.length} of ${references.length})`);
     if (!references.length) element('p', 'No references yet. Save a search paper or add your own work.', list, 'muted');
@@ -495,7 +511,8 @@ function renderReferenceLibrary(project, container) {
       const metadata = [reference.authors.join(', '), reference.year, reference.venue, reference.status].filter(Boolean).join(' · ');
       if (metadata) element('p', metadata, row, 'paper-metadata');
       if (reference.doi) element('p', `DOI: ${reference.doi}`, row, 'paper-doi');
-      if (reference.notes) element('p', reference.notes, row, 'reference-notes');
+      if (noteDrafts.has(reference.id)) notesEditor(reference, row);
+      else if (reference.notes) element('p', reference.notes, row, 'reference-notes');
       const citationControls = element('div', '', row, 'reference-citation-controls');
       const citedControl = element('label', '', citationControls, 'reference-cited-state');
       const citedCheckbox = element('input', '', citedControl);
@@ -599,21 +616,84 @@ function renderReferenceLibrary(project, container) {
         const source = link('Scholarly source', reference.sourceUrl, actions, 'button secondary');
         source.target = '_blank'; source.rel = 'noopener noreferrer';
       }
-      element('button', 'Edit', actions, 'secondary').addEventListener('click', () => {
-        if (reference.manual) openForm(reference);
-        else {
-          const notes = window.prompt('Notes', reference.notes);
-          if (notes === null) return;
-          api(`${projectPath}/${reference.id}`, {method: 'PATCH', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({notes})}).then(() => refresh()).catch(showError);
-        }
-      });
+      if (!noteDrafts.has(reference.id)) {
+        const notesButton = element('button', reference.notes ? 'Edit notes' : 'Add notes', actions, 'secondary');
+        notesButton.type = 'button';
+        notesButton.dataset.notesFor = reference.id;
+        notesButton.addEventListener('click', () => {
+          const saved = reference.notes || '';
+          noteDrafts.set(reference.id, {text: saved, saved, state: 'idle', error: ''});
+          toolbarStatus.textContent = '';
+          render();
+          list.querySelector(`textarea[data-note-for="${reference.id}"]`)?.focus();
+        });
+      }
+      if (reference.manual) {
+        element('button', 'Edit', actions, 'secondary').addEventListener('click', () => openForm(reference));
+      }
       element('button', 'Remove', actions, 'secondary').addEventListener('click', async () => {
-        if (!window.confirm(`Remove “${reference.title || 'this reference'}” from this project?`)) return;
-        try { await api(`${projectPath}/${reference.id}`, {method: 'DELETE'}); await refresh(); }
-        catch (error) { showError(error); }
+        const draft = noteDrafts.get(reference.id);
+        const what = `“${reference.title || 'this reference'}”${draft && unsaved(draft) ? ' and its unsaved notes' : ''}`;
+        if (!window.confirm(`Remove ${what} from this project?`)) return;
+        try {
+          await api(`${projectPath}/${reference.id}`, {method: 'DELETE'});
+          noteDrafts.delete(reference.id);
+          await refresh();
+        } catch (error) { showError(error); }
       });
     }
+    if (focusedNote) {
+      const textarea = list.querySelector(`textarea[data-note-for="${focusedNote.id}"]`);
+      if (textarea) { textarea.focus(); textarea.setSelectionRange(focusedNote.start, focusedNote.end); }
+    }
+  }
+  function notesEditor(reference, row) {
+    const draft = noteDrafts.get(reference.id);
+    const editor = element('div', '', row, 'reference-notes-editor');
+    const label = element('label', 'Notes', editor);
+    const textarea = element('textarea', '', label);
+    textarea.maxLength = 5000; textarea.rows = 4;
+    textarea.value = draft.text; textarea.dataset.noteFor = reference.id;
+    textarea.readOnly = draft.state === 'saving';
+    const footer = element('div', '', editor, 'reference-notes-footer');
+    const counter = element('span', '', footer, 'reference-notes-counter');
+    const status = element('span', '', footer, 'reference-save-status');
+    status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
+    const save = element('button', 'Save notes', footer);
+    save.type = 'button';
+    const cancel = element('button', 'Cancel', footer, 'secondary');
+    cancel.type = 'button';
+    function update() {
+      counter.textContent = `${draft.text.length} / 5000`;
+      status.textContent = draft.state === 'saving' ? 'Saving…'
+        : draft.state === 'error' ? `Not saved: ${draft.error}`
+          : unsaved(draft) ? 'Unsaved changes' : '';
+      save.disabled = cancel.disabled = draft.state === 'saving';
+    }
+    update();
+    textarea.addEventListener('input', () => { draft.text = textarea.value; update(); });
+    cancel.addEventListener('click', () => {
+      noteDrafts.delete(reference.id);
+      render();
+      list.querySelector(`button[data-notes-for="${reference.id}"]`)?.focus();
+    });
+    save.addEventListener('click', async () => {
+      draft.state = 'saving';
+      render();
+      try {
+        const updated = await api(`${projectPath}/${reference.id}`, {
+          method: 'PATCH', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({notes: draft.text}),
+        });
+        references = references.map(item => item.id === updated.id ? updated : item);
+        noteDrafts.delete(reference.id);
+        toolbarStatus.textContent = 'Notes saved';
+        render();
+      } catch (error) {
+        Object.assign(draft, {state: 'error', error: error.message});
+        render();
+      }
+    });
   }
   const ready = refresh({notify: false}).catch(showError);
   return {refresh, ready, isSaved: paper => savedIds.has(paper.id) ||

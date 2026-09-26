@@ -167,6 +167,30 @@ def test_reference_library_orders_by_title_and_allows_many_unnumbered(client):
     assert [item["title"] for item in client.get(refs).json()] == ["Alpha", "middle", "zebra"]
 
 
+@pytest.mark.parametrize("manual", [True, False])
+def test_notes_only_patch_preserves_other_fields(search_client, manual):
+    client, _provider, project = search_client
+    assert client.post(project + "/search").status_code == 200
+    paper = client.get(project + "/papers").json()[0]
+    refs = project + "/references"
+    if manual:
+        reference = client.post(
+            refs, json={"title": "My citation", "authors": ["A. Author"], "doi": "10.1/notes"}
+        ).json()
+    else:
+        reference = client.post(refs + "/from-paper/" + paper["id"]).json()
+    target = refs + "/" + reference["id"]
+    client.patch(target, json={"isCited": True, "readingStatus": "READING"})
+    client.patch(target, json={"citationNumber": 7})
+    before = client.get(refs).json()[0]
+    for notes in ["First line\nSecond line", "", "x" * 5000, "<script>alert(1)</script>"]:
+        response = client.patch(target, json={"notes": notes})
+        assert response.status_code == 200
+        assert response.json() == {**before, "notes": notes}
+    assert client.patch(target, json={"notes": "x" * 5001}).status_code == 422
+    assert client.get(refs).json()[0]["notes"] == "<script>alert(1)</script>"
+
+
 def test_postgres_reading_status_upgrade(client, engine):
     """Simulate a pre-016 library, then apply the real upgrade and check backfill."""
     from pathlib import Path
