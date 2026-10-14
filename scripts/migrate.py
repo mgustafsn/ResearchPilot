@@ -12,6 +12,8 @@ from pathlib import Path
 
 from sqlalchemy import create_engine, inspect, text
 
+from researchpilot.config import database_url
+
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS = sorted((ROOT / "migrations").glob("*.sql"))
@@ -93,11 +95,10 @@ def _already_applied(inspector, migration_number: int) -> bool:
 
 
 def main() -> None:
-    url = os.environ.get("DATABASE_URL")
-    if not url:
+    if not os.environ.get("DATABASE_URL"):
         raise SystemExit("DATABASE_URL is not set. Copy .env.example to .env and try again.")
 
-    engine = create_engine(url, pool_pre_ping=True)
+    engine = create_engine(database_url(), pool_pre_ping=True)
     try:
         with engine.begin() as connection:
             connection.execute(

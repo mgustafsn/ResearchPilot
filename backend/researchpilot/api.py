@@ -1,12 +1,16 @@
 from contextlib import AsyncExitStack, asynccontextmanager
+import asyncio
+import base64
+import binascii
+import hmac
 import os
 from pathlib import Path
 from uuid import UUID
 
 import httpx
 
-from fastapi import Depends, FastAPI, Response
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import BackgroundTasks, Depends, FastAPI, Request, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -62,6 +66,10 @@ SOURCES = {
 
 
 def create_app(engine=None, provider=None, embedding_provider=None, llm_provider=None):
+    password = os.environ.get("RESEARCHPILOT_PASSWORD", "")
+    if os.environ.get("DYNO") and len(password) < 16:
+        raise RuntimeError("Set RESEARCHPILOT_PASSWORD to at least 16 characters on Heroku")
+
     @asynccontextmanager
     async def lifespan(app):
         app.state.engine = (
@@ -96,6 +104,40 @@ def create_app(engine=None, provider=None, embedding_provider=None, llm_provider
                     app.state.engine.dispose()
 
     app = FastAPI(title="ResearchPilot", lifespan=lifespan)
+
+    @app.middleware("http")
+    async def private_access(request: Request, call_next):
+        if os.environ.get("DYNO") and request.headers.get("x-forwarded-proto") != "https":
+            return RedirectResponse(str(request.url.replace(scheme="https")), status_code=307)
+        if password:
+            try:
+                scheme, encoded = request.headers.get("authorization", "").split(" ", 1)
+                credentials = base64.b64decode(encoded, validate=True).decode("utf-8")
+                username, supplied_password = credentials.split(":", 1)
+            except (ValueError, UnicodeDecodeError, binascii.Error):
+                username, supplied_password, scheme = "", "", ""
+            if not (
+                scheme.lower() == "basic"
+                and hmac.compare_digest(username.encode(), b"researchpilot")
+                and hmac.compare_digest(supplied_password.encode(), password.encode())
+            ):
+                return Response(
+                    status_code=401,
+                    headers={
+                        "WWW-Authenticate": 'Basic realm="ResearchPilot"',
+                        "Cache-Control": "no-store",
+                    },
+                )
+            if request.method not in {"GET", "HEAD", "OPTIONS"}:
+                origin = request.headers.get("origin")
+                expected_origin = (
+                    f"https://{request.headers['host']}"
+                    if os.environ.get("DYNO")
+                    else str(request.base_url).rstrip("/")
+                )
+                if origin and origin != expected_origin:
+                    return Response(status_code=403)
+        return await call_next(request)
 
     def service():
         with Session(app.state.engine) as session, session.begin():
@@ -260,8 +302,21 @@ def create_app(engine=None, provider=None, embedding_provider=None, llm_provider
         )
         return JSONResponse(status_code=status, content={"detail": str(exc), "code": exc.code})
 
+    async def finish_hosted_search(run):
+        try:
+            await app.state.search.execute(run)
+        except (ProviderError, SearchConflict):
+            # The run status is persisted and returned by the existing history endpoint.
+            pass
+
     @app.post("/api/projects/{project_id}/search", response_model=SearchRun)
-    async def search_project(project_id: UUID, force: bool = False):
+    async def search_project(
+        project_id: UUID, background_tasks: BackgroundTasks, force: bool = False
+    ):
+        if os.environ.get("DYNO"):
+            run = await asyncio.to_thread(app.state.search.start, project_id, force)
+            background_tasks.add_task(finish_hosted_search, run)
+            return JSONResponse(status_code=202, content=run.model_dump(mode="json"))
         return await app.state.search.search(project_id, force)
 
     @app.get("/api/projects/{project_id}/searches", response_model=list[SearchRun])

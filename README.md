@@ -23,9 +23,43 @@ The launcher creates `.env` from `.env.example` on first run, waits for the data
 applies pending migrations, and starts the backend. Add `OPENAI_API_KEY` to `.env`
 before running a literature search. Docker's named volume persists projects across
 restarts. The Compose password is deliberately for local development only.
-Docker's named volume persists projects across restarts. The Compose password is
-only a local development credential. This phase is a local single-user application;
-authentication and public deployment are outside its scope.
+This phase is a single-user application; multi-user accounts are outside its scope.
+
+## Prepare a private Heroku deployment
+
+The root `Procfile` starts one web process and applies database migrations during each
+Heroku release. The Python buildpack installs dependencies from `uv.lock` and
+`pyproject.toml`; `.python-version` selects Python 3.12. Heroku supplies `DATABASE_URL`
+when Heroku Postgres is attached. The app converts that URL for psycopg and requires TLS
+on a Heroku dyno.
+
+1. Redeem the GitHub Student Developer Pack Heroku offer, create a Heroku app, and
+   attach Heroku Postgres (Essential-0 is sufficient to start). Set the app to use the
+   Python buildpack if Heroku does not detect it automatically.
+2. In Heroku's Config Vars, set `RESEARCHPILOT_PASSWORD` to a unique password of at
+   least 16 characters. Set `OPENAI_API_KEY` there before searching. Set optional
+   provider keys only when needed. Never commit these values or set `DATABASE_URL`
+   yourself on Heroku.
+3. Deploy the repository. The release process creates or upgrades the schema before
+   the web process starts. Check the release logs and open `https://YOUR_APP.herokuapp.com`.
+   The browser prompts for username `researchpilot` and the password from step 2.
+4. Schedule daily Postgres backups: `heroku pg:backups:schedule DATABASE_URL --at
+   '02:00 Europe/Helsinki' --app YOUR_APP`. Check the schedule and occasionally
+   download and restore a backup to verify it.
+
+The hosted app redirects HTTP to HTTPS and requires the password for pages, static
+files, API calls, and API documentation. This is single-user HTTP Basic access, so
+use a strong, unique password and access the site only over HTTPS. Heroku's Basic
+dyno stays on; Eco dynos sleep when idle. Hosted literature searches return `202`
+immediately and continue on the web dyno while the page polls their saved status.
+A dyno restart can interrupt a search; its database lease expires after four minutes,
+after which it can be retried. Run only one web dyno for this setup.
+
+Deployment creates a new, empty database; it does not copy projects from your desktop.
+Before switching to the hosted app, export your local PostgreSQL database and import
+it using [Heroku's Postgres import/export guide](https://devcenter.heroku.com/articles/heroku-postgres-import-export).
+Keep a local backup until you verify your projects and references on Heroku. Thereafter,
+use the hosted app from both computers so there is only one database to update.
 
 ## Validate
 

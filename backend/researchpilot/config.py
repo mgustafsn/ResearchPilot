@@ -1,10 +1,15 @@
 import os
 
+from sqlalchemy.engine import make_url
+
 
 def database_url():
-    url = os.environ.get("DATABASE_URL", "")
-    if not url.startswith("postgresql+psycopg://"):
-        raise RuntimeError("Set DATABASE_URL to a postgresql+psycopg:// connection URL")
+    raw = os.environ.get("DATABASE_URL", "")
+    if not raw.startswith(("postgres://", "postgresql://", "postgresql+psycopg://")):
+        raise RuntimeError("Set DATABASE_URL to a PostgreSQL connection URL")
+    url = make_url(raw).set(drivername="postgresql+psycopg")
+    if os.environ.get("DYNO"):
+        url = url.update_query_dict({"sslmode": "require"})
     return url
 
 

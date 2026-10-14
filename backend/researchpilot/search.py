@@ -434,9 +434,15 @@ class SearchService:
 
     async def search(self, project_id, force=False):
         run = await asyncio.to_thread(self.start, project_id, force)
+        return await self.execute(run)
+
+    async def execute(self, run):
         search_started = time.perf_counter()
         logger.info(
-            "Search started project=%s run=%s provider=%s", project_id, run.id, self.provider.name
+            "Search started project=%s run=%s provider=%s",
+            run.projectId,
+            run.id,
+            self.provider.name,
         )
         try:
             queries = await self._expand_queries(run)
