@@ -2,9 +2,18 @@
 
 ## 1. Product Overview
 
-ResearchPilot is a web application for discovering academic research papers and automatically organizing them into meaningful subtopics.
+ResearchPilot is a web application for collecting and managing project references.
 
-A user enters a research topic or research question. The system searches trusted scholarly data sources, retrieves relevant papers, ranks them by relevance, and groups them into AI-generated subtopics.
+A user creates a project with a title and adds citations manually. Each project opens on
+its reference library, with notes, reading status, citation tracking, and external links.
+Paper discovery is optional: after adding a research description, the user can search
+trusted scholarly sources, rank and group the results, and save selected papers as
+references. Discovery results do not replace the reference library.
+
+The search and research map requirements below apply to projects that use optional
+discovery. Title-only projects must support reference management without search setup.
+Search and query suggestions require a nonblank description and reject requests with
+`422 DESCRIPTION_REQUIRED` before creating a search run when it is absent.
 
 The system must use real scholarly sources for paper discovery. The LLM must never invent papers or use its internal knowledge as the authoritative source of citations.
 
@@ -27,7 +36,9 @@ Each category contains relevant papers and information explaining why each paper
 
 # 2. Core Product Goals
 
-The MVP should allow the user to:
+The primary workflow should allow the user to create a project, add references,
+maintain notes, and track reading and citation status. Optional discovery should
+allow the user to:
 
 1. Enter a research topic or research question.
 2. Search real scholarly APIs for papers.
@@ -37,7 +48,7 @@ The MVP should allow the user to:
 6. Understand why papers were categorized into each subtopic.
 7. Manually modify the generated organization.
 8. Open the original publication or available full text.
-9. Save a research search/project for later use.
+9. Save selected papers to the project's reference library.
 
 The architecture should also support future institutional library authentication without requiring a major redesign.
 
@@ -47,9 +58,9 @@ The architecture should also support future institutional library authentication
 
 ## 3.1 Start Research Project
 
-The user should be able to create a research project by entering:
+The user should be able to create a research project with a project name. Optional
+discovery settings are:
 
-* Project name
 * Research description (what the user wants to understand; not searched directly)
 * Optional keywords
 * Optional year range
@@ -877,7 +888,7 @@ Create research project.
 
 ### `/projects/{id}`
 
-Main Research Map.
+Reference library by default, with an optional Discover papers tab for the Research Map.
 
 ### `/settings`
 

@@ -22,6 +22,32 @@ from researchpilot.providers.openalex import normalize_work
 from researchpilot.search_persistence import PaperRow, ProjectPaperRow, SearchRunRow
 
 
+def test_discovery_requires_description_then_runs(search_client):
+    client, _, url = search_client
+    title_only = client.post("/api/projects", json={"title": "Reading list"})
+    assert title_only.status_code == 201
+    library = title_only.headers["location"]
+    reference = client.post(library + "/references", json={"title": "A paper"})
+    assert reference.status_code == 201
+    for path in ("/search", "/queries"):
+        response = client.post(library + path)
+        assert response.status_code == 422
+        assert response.json()["code"] == "DESCRIPTION_REQUIRED"
+    assert client.get(library + "/searches").json() == []
+    assert client.get(library + "/references").json()[0]["title"] == "A paper"
+    configured = client.put(
+        library, json={"title": "Reading list", "researchQuestion": "Software testing"}
+    )
+    assert configured.status_code == 200
+    assert client.post(library + "/search").status_code == 200
+    papers = client.get(library + "/papers").json()
+    assert papers
+    assert client.put(library, json={"title": "Reading list"}).status_code == 200
+    assert client.get(library + "/papers").json() == papers
+    assert client.get(library + "/searches").json()[0]["status"] == "COMPLETED"
+    assert client.get(library + "/references").json()[0]["title"] == "A paper"
+
+
 def test_search_persists_real_metadata_and_snapshot(search_client, engine):
     client, provider, url = search_client
     response = client.post(url + "/search")

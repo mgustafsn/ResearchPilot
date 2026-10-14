@@ -56,6 +56,10 @@ class NoEnabledQueries(Exception):
     """Saved queries exist but every one is disabled, so there is nothing to search."""
 
 
+class DescriptionRequired(Exception):
+    """Optional discovery needs a research description before it can run."""
+
+
 logger = logging.getLogger(__name__)
 SEARCH_TIMEOUT_SECONDS = 60
 EMBEDDING_TIMEOUT_SECONDS = 60
@@ -110,6 +114,8 @@ class SearchService:
     def start(self, project_id, force=False):
         with Session(self.engine) as session, session.begin():
             project = self._project(session, project_id)
+            if not project.researchQuestion:
+                raise DescriptionRequired("Add a research description before discovering papers.")
             repository = SearchRepository(session)
             latest = expire_search(project, repository)
             if latest and latest.status == "SEARCHING":
@@ -166,6 +172,8 @@ class SearchService:
     async def expand_project_queries(self, project_id):
         with Session(self.engine) as session:
             project = self._editable(session, project_id)
+            if not project.researchQuestion:
+                raise DescriptionRequired("Add a research description before suggesting queries.")
             question, keywords, title = project.researchQuestion, project.keywords, project.title
         queries = await self._expand_text(question, keywords, title)
         with Session(self.engine) as session, session.begin():

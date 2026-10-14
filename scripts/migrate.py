@@ -48,10 +48,17 @@ def _already_applied(inspector, migration_number: int) -> bool:
         16: ("project_references",),
         17: ("search_runs",),
         18: ("project_references",),
+        19: ("research_projects",),
     }
     required_tables = requirements[migration_number]
     if not all(table in tables for table in required_tables):
         return False
+    if migration_number == 19:
+        return next(
+            column
+            for column in inspector.get_columns("research_projects")
+            if column["name"] == "researchQuestion"
+        )["nullable"]
 
     required_columns = {
         3: {

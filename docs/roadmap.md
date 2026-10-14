@@ -44,6 +44,7 @@ sequence number. Each feature gets a branch `feat/<name>`, a note in
 | Reference reading status | Track To read, Reading, and Read per saved reference and filter the library | [reading-status](features/reading-status.md) |
 | Citation tracking | Mark references as cited, with optional unique citation numbers that can be restored | [citation-tracking](features/citation-tracking.md) |
 | Reference notes | Inline notes editor with Save/Cancel, a character counter, and drafts that survive rerenders | [reference-notes](features/reference-notes.md) |
+| Library first | References open by default; title-only projects can collect citations before configuring optional discovery | [library-first](features/library-first.md) |
 
 ### Interface
 

@@ -103,6 +103,7 @@ def test_nfr_sec_2_metadata_html_is_inert(tmp_path):
         ).json()
         page.request.post(f"{base}/api/projects/{project['id']}/search")
         page.goto(f"{base}/projects/{project['id']}")
+        page.get_by_role("button", name="Discover papers", exact=True).click()
         row = page.locator(".paper-row").filter(has_text="hostile title")
         # Card: title, authors (author name label) and venue are all rendered here.
         expect(row).to_contain_text(INJECTION_TITLE)
@@ -157,6 +158,7 @@ def test_nfr_sec_3_rendered_links_are_http_or_local(tmp_path):
         ).json()
         page.request.post(f"{base}/api/projects/{project['id']}/search")
         page.goto(f"{base}/projects/{project['id']}")
+        page.get_by_role("button", name="Discover papers", exact=True).click()
         page.locator(".paper-row").first.click()
         expect(page.locator(".drawer-panel")).to_be_visible()
         hrefs = page.eval_on_selector_all(

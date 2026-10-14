@@ -131,9 +131,9 @@ function note(parent, title, description) {
 }
 function projectForm(project = {}) {
   const editing = Boolean(project.id);
-  heading(editing ? 'Edit your research project' : 'Every discovery starts with a question',
-    editing ? 'Refine your question and update your research preferences.'
-      : 'Capture a research topic and give your next exploration a place to grow.');
+  heading(editing ? 'Edit your research project' : 'Start a reference library',
+    editing ? 'Update your library and optional discovery settings.'
+      : 'Name your project, then add the references you need.');
   tabs(editing ? 'Project details' : 'New project');
   const layout = element('div', '', content, 'workspace');
   const f = element('form', '', layout, 'panel project-form');
@@ -141,36 +141,39 @@ function projectForm(project = {}) {
   f.innerHTML += `
     <label for="title">Project title</label>
     <input id="title" name="title" required maxlength="200" placeholder="Give your project a name">
-    <label for="researchQuestion">Research description</label>
-    <textarea id="researchQuestion" name="researchQuestion" required maxlength="5000" aria-describedby="description-help" placeholder="Describe what you want to understand…"></textarea>
-    <p id="description-help" class="field-help">Guides query suggestions, relevance, and subtopic names. It is not searched directly.</p>
-    <label for="keywords">Keywords <span class="optional">Optional</span></label>
-    <textarea id="keywords" name="keywords" class="keywords-input" aria-describedby="keyword-help" placeholder="e.g. large language models"></textarea>
-    <p id="keyword-help" class="field-help">One keyword or phrase per line.</p>
-    <div class="form-divider"></div>
-    <h3>Research preferences</h3>
-    <div class="field-row">
-      <div><label for="yearFrom">From year <span class="optional">Optional</span></label><input id="yearFrom" name="yearFrom" type="number" min="1" max="9999" placeholder="Any"></div>
-      <div><label for="yearTo">To year <span class="optional">Optional</span></label><input id="yearTo" name="yearTo" type="number" min="1" max="9999" placeholder="Any"></div>
-      <div><label for="maxPaperCount">Paper limit <span class="optional">Optional</span></label><input id="maxPaperCount" name="maxPaperCount" type="number" min="1" max="1000" placeholder="Not set"></div>
-    </div>
+    <details class="project-discovery-settings">
+      <summary>Discover papers settings (optional)</summary>
+      <label for="researchQuestion">Research description</label>
+      <textarea id="researchQuestion" name="researchQuestion" maxlength="5000" aria-describedby="description-help" placeholder="Describe what you want to understand…"></textarea>
+      <p id="description-help" class="field-help">Required only to discover papers. It guides query suggestions, relevance, and subtopic names.</p>
+      <label for="keywords">Keywords <span class="optional">Optional</span></label>
+      <textarea id="keywords" name="keywords" class="keywords-input" aria-describedby="keyword-help" placeholder="e.g. large language models"></textarea>
+      <p id="keyword-help" class="field-help">One keyword or phrase per line.</p>
+      <div class="field-row">
+        <div><label for="yearFrom">From year <span class="optional">Optional</span></label><input id="yearFrom" name="yearFrom" type="number" min="1" max="9999" placeholder="Any"></div>
+        <div><label for="yearTo">To year <span class="optional">Optional</span></label><input id="yearTo" name="yearTo" type="number" min="1" max="9999" placeholder="Any"></div>
+        <div><label for="maxPaperCount">Paper limit <span class="optional">Optional</span></label><input id="maxPaperCount" name="maxPaperCount" type="number" min="1" max="1000" placeholder="Not set"></div>
+      </div>
+    </details>
     <div class="form-actions"><button type="submit">Save project</button></div>`;
   for (const name of ['title', 'researchQuestion', 'yearFrom', 'yearTo', 'maxPaperCount']) {
     f.elements[name].value = project[name] ?? '';
   }
   f.elements.keywords.value = (project.keywords || []).join('\n');
+  if (project.researchQuestion || project.keywords?.length || project.yearFrom || project.yearTo || project.maxPaperCount) {
+    f.querySelector('.project-discovery-settings').open = true;
+  }
   link('Cancel', editing ? `/projects/${project.id}` : '/', f.querySelector('.form-actions'), 'button secondary');
   const aside = element('aside', '', layout, 'context-column');
-  note(aside, 'Start with curiosity', 'A focused question gives your research direction. Try describing what you want to understand, compare, or investigate.');
-  const help = panel(aside, 'Make it your own', 'sliders');
-  element('p', 'Add keywords to capture important concepts, and a year range to define the period you’re interested in.', help, 'muted');
-  element('p', 'You can come back and edit these details at any time.', help, 'muted');
+  note(aside, 'Build your library', 'Add citations, links, notes, and reading progress as you work. You can start with just a project title.');
+  const help = panel(aside, 'Discover papers later', 'sliders');
+  element('p', 'Add a research description whenever you want to search scholarly sources for more papers.', help, 'muted');
   f.addEventListener('submit', async event => {
     event.preventDefault();
     errorBox.hidden = true;
     const data = {
       title: f.elements.title.value,
-      researchQuestion: f.elements.researchQuestion.value,
+      researchQuestion: f.elements.researchQuestion.value.trim() || null,
       keywords: f.elements.keywords.value.split('\n').map(s => s.trim()).filter(Boolean),
     };
     for (const name of ['yearFrom', 'yearTo', 'maxPaperCount']) {
@@ -275,7 +278,7 @@ async function settings() {
   link('Back to library', '/', help, 'button secondary settings-back');
 }
 function dashboard(projects) {
-  heading('Your projects', 'Pick up where you left off, or explore a new question.');
+  heading('Your projects', 'Open a reference library or start a new one.');
   const toolbar = element('div', '', content, 'search-toolbar');
   const searchBox = element('div', '', toolbar, 'search-box');
   searchBox.append(icon('search'));
@@ -297,15 +300,15 @@ function dashboard(projects) {
     if (!filtered.length) {
       const empty = element('div', '', results, 'empty-state');
       empty.append(icon('document'));
-      element('h3', projects.length ? 'No matching projects' : 'Your next discovery starts here', empty);
-      element('p', projects.length ? 'Try a different title, topic, or keyword.' : 'Create your first project to save a question you want to explore.', empty, 'muted');
+      element('h3', projects.length ? 'No matching projects' : 'Your reference library starts here', empty);
+      element('p', projects.length ? 'Try a different title, topic, or keyword.' : 'Create a project to collect references.', empty, 'muted');
       if (!projects.length) link('Create a project', '/projects/new', empty, 'button');
     }
     for (const project of filtered) {
       const card = element('article', '', results, 'project-row');
       const title = element('h3', '', card);
       link(project.title, `/projects/${project.id}`, title);
-      element('p', project.researchQuestion, card, 'project-question');
+      if (project.researchQuestion) element('p', project.researchQuestion, card, 'project-question');
       const keywords = element('div', '', card, 'keyword-list');
       for (const keyword of project.keywords.slice(0, 4)) element('span', keyword, keywords, 'keyword');
       if (project.keywords.length > 4) element('span', `+${project.keywords.length - 4}`, keywords, 'keyword');
@@ -321,25 +324,18 @@ function dashboard(projects) {
 function detail(project) {
   const breadcrumb = link('Library', '/', content, 'breadcrumb');
   breadcrumb.prepend(icon('arrow'));
-  heading(project.title, 'Explore the literature and build your reference library.');
+  heading(project.title, 'Collect and manage the references for this project.');
   const actions = element('div', '', content, 'detail-toolbar');
   element('span', 'Saved project', actions, 'chip saved-chip');
   link('Edit project', `/projects/${project.id}/edit`, actions, 'button').prepend(icon('sliders'));
   const pageTabs = element('div', '', content, 'section-tabs project-tabs');
-  const overviewTab = element('button', 'Overview', pageTabs, 'selected-tab');
-  const referencesTab = element('button', 'References', pageTabs);
-  overviewTab.type = referencesTab.type = 'button';
+  const referencesTab = element('button', 'References', pageTabs, 'selected-tab');
+  const discoveryTab = element('button', 'Discover papers', pageTabs);
+  referencesTab.type = discoveryTab.type = 'button';
   const layout = element('div', '', content, 'project-workspace');
+  layout.hidden = true;
   const referencesPanel = element('div', '', content);
-  referencesPanel.hidden = true;
-  function selectTab(references) {
-    layout.hidden = references;
-    referencesPanel.hidden = !references;
-    overviewTab.classList.toggle('selected-tab', !references);
-    referencesTab.classList.toggle('selected-tab', references);
-  }
-  overviewTab.addEventListener('click', () => selectTab(false));
-  referencesTab.addEventListener('click', () => selectTab(true));
+  let discoveryLoaded = false;
   const summary = element('section', '', layout, 'project-summary');
   const facts = element('div', '', summary, 'project-facts');
   element('span', `${yearRange(project)} · ${project.maxPaperCount ?? 'Default'} paper limit`, facts);
@@ -347,18 +343,37 @@ function detail(project) {
   for (const keyword of project.keywords) element('span', keyword, keywordList, 'keyword');
   const details = element('details', '', summary, 'project-details');
   element('summary', 'Project details', details);
-  element('h2', 'Research description', details);
-  element('p', project.researchQuestion, details, 'research-question');
+  if (project.researchQuestion) {
+    element('h2', 'Research description', details);
+    element('p', project.researchQuestion, details, 'research-question');
+  }
   const dl = element('dl', '', details, 'details-list');
   for (const [label, value] of [['Created', date(project.createdAt)], ['Last updated', date(project.updatedAt)]]) {
     element('dt', label, dl); element('dd', value, dl);
   }
-  const management = element('div', '', details, 'project-management');
-  const remove = element('button', 'Delete project', management, 'danger');
+  const remove = element('button', 'Delete project', actions, 'danger');
   const aside = element('div', '', layout, 'search-configuration');
   const left = element('div', '', layout, 'project-results');
   const referenceLibrary = renderReferenceLibrary(project, referencesPanel);
-  literature(project, left, aside, actions, remove, referenceLibrary);
+  function selectTab(references) {
+    layout.hidden = references;
+    referencesPanel.hidden = !references;
+    referencesTab.classList.toggle('selected-tab', references);
+    discoveryTab.classList.toggle('selected-tab', !references);
+    const searchButton = actions.querySelector('.discovery-search-button');
+    if (searchButton) searchButton.hidden = references || !project.researchQuestion;
+    if (!references && !discoveryLoaded) {
+      discoveryLoaded = true;
+      if (!project.researchQuestion) {
+        const setup = panel(left, 'Set up paper discovery', 'search');
+        element('p', 'Add a research description to search scholarly sources for papers.', setup, 'muted');
+        link('Edit project', `/projects/${project.id}/edit`, setup, 'button');
+      }
+      literature(project, left, aside, actions, remove, referenceLibrary);
+    }
+  }
+  referencesTab.addEventListener('click', () => selectTab(true));
+  discoveryTab.addEventListener('click', () => selectTab(false));
   remove.addEventListener('click', async () => {
     if (!confirm(`Delete “${project.title}”? This cannot be undone.`)) return;
     remove.disabled = true;
@@ -700,13 +715,15 @@ function renderReferenceLibrary(project, container) {
     Boolean(paper.doi && savedDois.has(doiKey(paper.doi)))};
 }
 function literature(project, left, aside, actions, remove, referenceLibrary) {
-  const searchButton = element('button', 'Find papers', actions);
+  const searchButton = element('button', 'Find papers', actions, 'discovery-search-button');
+  searchButton.hidden = !project.researchQuestion;
   searchButton.prepend(icon('search'));
   const papersPanel = panel(left, 'Papers', 'document');
   const papersBody = element('div', '', papersPanel);
   const searchNotice = element('div', '', aside, 'search-notice');
   searchNotice.setAttribute('role', 'status');
   const searchPanel = element('details', '', aside, 'search-disclosure');
+  searchPanel.hidden = !project.researchQuestion;
   searchPanel.open = true;
   element('summary', 'Literature search', searchPanel);
   let searchDisclosureInitialized = false;
@@ -741,7 +758,7 @@ function literature(project, left, aside, actions, remove, referenceLibrary) {
     value = value || pendingSearch;
     busy = value;
     document.querySelectorAll(".drawer-organize select, .drawer-organize button, .subtopic-menu button, .subtopic-menu select, .rename-form input, .rename-form textarea, .rename-form button, .query-controls input, .query-controls button").forEach(control => { control.disabled = value; });
-    searchButton.disabled = value || noEnabledQueries;
+    searchButton.disabled = value || noEnabledQueries || !project.researchQuestion;
     searchButton.textContent = value ? 'Searching papers…' : 'Find papers';
     if (!value) searchButton.prepend(icon('search'));
     remove.disabled = value;
@@ -889,9 +906,10 @@ function literature(project, left, aside, actions, remove, referenceLibrary) {
     if (!papers.length) {
       const empty = element('div', '', papersBody, 'empty-state');
       empty.append(icon('search'));
-      element('h3', completed ? 'No papers matched this search' : 'Explore the literature', empty);
+      element('h3', completed ? 'No papers matched this search' : project.researchQuestion ? 'Explore the literature' : 'No discovery results yet', empty);
       element('p', completed ? 'Try a shorter research topic or a wider year range.'
-        : 'Find real scholarly papers using your research question.', empty, 'muted');
+        : project.researchQuestion ? 'Find real scholarly papers using your research question.'
+          : 'Add a research description to discover papers.', empty, 'muted');
       return;
     }
     const named = new Map((subtopics || []).map(topic => [topic.clusterId, topic]));

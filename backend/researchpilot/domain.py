@@ -16,11 +16,16 @@ class ProjectInput(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     title: str = Field(min_length=1, max_length=200)
     # Shown as "Research description": LLM context and relevance anchor, never searched.
-    researchQuestion: str = Field(min_length=1, max_length=5000)
+    researchQuestion: str | None = Field(default=None, min_length=1, max_length=5000)
     keywords: list[str] = Field(default_factory=list, max_length=30)
     yearFrom: StrictInt | None = Field(default=None, ge=1, le=9999)
     yearTo: StrictInt | None = Field(default=None, ge=1, le=9999)
     maxPaperCount: StrictInt | None = Field(default=None, ge=1, le=1000)
+
+    @field_validator("researchQuestion", mode="before")
+    @classmethod
+    def empty_description(cls, value):
+        return None if isinstance(value, str) and not value.strip() else value
 
     @field_validator("keywords")
     @classmethod

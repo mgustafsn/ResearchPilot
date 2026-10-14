@@ -21,7 +21,7 @@ class ProjectRow(Base):
     )
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     title: Mapped[str] = mapped_column(String(200))
-    researchQuestion: Mapped[str] = mapped_column(String(5000))
+    researchQuestion: Mapped[str | None] = mapped_column(String(5000))
     keywords: Mapped[list[str]] = mapped_column(JSON)
     yearFrom: Mapped[int | None]
     yearTo: Mapped[int | None]

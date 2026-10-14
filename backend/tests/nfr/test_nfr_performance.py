@@ -20,12 +20,14 @@ def test_nfr_perf_1_map_renders_250_papers(large_browser, record_property):
     page, base, project_id = large_browser
     with budget(record_property, "NFR-PERF-1", 1.5):
         page.goto(f"{base}/projects/{project_id}")
+        page.get_by_role("button", name="Discover papers", exact=True).click()
         expect(page.locator(".paper-row")).to_have_count(252, timeout=10_000)
 
 
 def test_nfr_perf_2_tab_and_filter_rerender(large_browser, record_property):
     page, base, project_id = large_browser
     page.goto(f"{base}/projects/{project_id}")
+    page.get_by_role("button", name="Discover papers", exact=True).click()
     expect(page.locator(".paper-row")).to_have_count(252, timeout=10_000)
     tab = page.locator(".cluster-tab").nth(1)
     expected = int(tab.locator(".count").inner_text())

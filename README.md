@@ -1,13 +1,11 @@
 # ResearchPilot
 
-Manage research projects, retrieve real scholarly papers from OpenAlex or Scopus,
-deduplicate them, score relevance by embedding similarity to the research question,
-cluster them into groups, have an LLM name each cluster and explain why a paper belongs in
-it, browse the result as a research map with staged search progress and a
-paper-detail drawer, manually rename subtopics, move papers, and set papers aside,
-and see each paper's open-access status and links. Python 3.12+, FastAPI, SQLAlchemy,
-PostgreSQL, NumPy, OpenAI (embeddings + a chat model), and a same-origin vanilla
-JavaScript frontend.
+Build a reference library for each research project. Add citations and links manually,
+track reading and citation status, and keep notes. Projects need only a title. An optional
+**Discover papers** tab searches OpenAlex or Scopus and lets you save selected results
+to the library; discovery needs a research description and a configured OpenAI key.
+Python 3.12+, FastAPI, SQLAlchemy, PostgreSQL, NumPy, OpenAI (embeddings + a chat
+model), and a same-origin vanilla JavaScript frontend.
 
 ## Run locally
 
@@ -115,7 +113,11 @@ Review the draft PR before marking it ready or merging it.
 
 ## Current behavior
 
-The demo implements project CRUD, OpenAlex or Scopus retrieval, deterministic DOI/identity/title
+The project opens on its References tab, where manual citations can be added without
+search setup. Discovery settings are optional in the project form. A project without a
+research description shows a setup prompt on the Discover papers tab; search and query
+suggestion requests return `422 DESCRIPTION_REQUIRED` until a description is saved.
+The optional discovery flow implements OpenAlex or Scopus retrieval, deterministic DOI/identity/title
 deduplication, embedding-based relevance scoring and clustering, structured
 LLM subtopic naming, a research map, paper details, on-demand explanations, manual
 organization, and provider-derived open-access labels and links.
@@ -132,7 +134,7 @@ summary.
 Users can set retained papers aside and restore them.
 The paper list can be ordered by relevance, citation count, publication date, or title;
 sorting applies within every subtopic and keeps the selected order when filters refresh.
-The References tab stores selected search papers and manually entered citations,
+The References tab stores selected discovery papers and manually entered citations,
 including unlinked drafts. Notes belong to the project and remain available after later
 searches. Add or edit notes inline on any reference with explicit Save and Cancel; unsaved
 drafts survive filtering, tab switches, and refreshes, and leaving the page with an unsaved
@@ -142,7 +144,7 @@ Each saved reference has a separate reading status: To read, Reading, or Read. C
 directly in the References tab and filter the list by status. New and existing
 references default to To read; progress belongs to each project and survives later
 searches. The filter resets to All when reopening a project. Apply migrations
-`016_reference_reading_status.sql` through `018_reference_citation_tracking.sql` before
+`016_reference_reading_status.sql` through `019_optional_research_description.sql` before
 starting this version (the local launcher applies pending migrations automatically).
 
 Scholarly metadata comes only from `PaperProvider` implementations. Embeddings and
@@ -203,8 +205,8 @@ provider timeouts and the 30-second outer deadline return 504 with code
 
 ### API
 
-- `/api/projects`: GET list, POST create.
-- `/api/projects/{id}`: GET, PUT project fields, DELETE.
+- `/api/projects`: GET list, POST create; only `title` is required.
+- `/api/projects/{id}`: GET, PUT project fields, DELETE; `researchQuestion` may be null.
 - `/api/projects/{id}/search`: POST; optional `force=true` confirms replacement.
 - `/api/projects/{id}/searches`: GET latest 20 attempts and progress.
 - `/api/projects/{id}/papers` and `/subtopics`: GET saved results.

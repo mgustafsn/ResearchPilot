@@ -48,7 +48,7 @@ def test_crud_and_restart(client, engine):
     [
         {"title": " "},
         {"title": "x" * 201},
-        {"researchQuestion": " "},
+        {"researchQuestion": 42},
         {"yearFrom": 2027, "yearTo": 2026},
         {"yearFrom": 0},
         {"yearTo": 10000},
@@ -84,11 +84,43 @@ def test_missing_and_malformed_ids(client):
 
 
 def test_optional_fields():
+    assert ProjectInput(title="A").researchQuestion is None
+    assert ProjectInput(title="A", researchQuestion=" ").researchQuestion is None
     data = ProjectInput(title="A", researchQuestion="B", yearFrom=2020)
     assert data.yearTo is None
     assert data.maxPaperCount is None
     with pytest.raises(ValidationError):
         ProjectInput(title="A", researchQuestion="B", secret="value")
+
+
+def test_title_only_project_and_discovery_settings(client):
+    created = client.post("/api/projects", json={"title": "My library"})
+    assert created.status_code == 201
+    project = created.json()
+    assert project["researchQuestion"] is None
+    assert project["keywords"] == []
+    url = created.headers["location"]
+    assert client.get(url).json() == project
+    configured = client.put(
+        url,
+        json={
+            "title": "My library",
+            "researchQuestion": "  Test coverage  ",
+            "keywords": ["coverage"],
+            "yearFrom": 2020,
+            "maxPaperCount": 25,
+        },
+    )
+    assert configured.status_code == 200
+    assert configured.json()["researchQuestion"] == "Test coverage"
+    assert configured.json()["yearFrom"] == 2020
+    assert configured.json()["maxPaperCount"] == 25
+    assert (
+        client.put(url, json={"title": "My library", "researchQuestion": " "}).json()[
+            "researchQuestion"
+        ]
+        is None
+    )
 
 
 def test_pages(client):

@@ -40,7 +40,13 @@ from .providers.openai import OpenAIEmbeddingProvider, OpenAILlmProvider
 from .providers.openalex import OpenAlexProvider
 from .providers.multi import MultiSourceProvider
 from .providers.scopus import ScopusProvider
-from .search import DuplicateQuery, InvalidQuery, NoEnabledQueries, SearchService
+from .search import (
+    DescriptionRequired,
+    DuplicateQuery,
+    InvalidQuery,
+    NoEnabledQueries,
+    SearchService,
+)
 from .search_persistence import (
     ExplanationUnavailable,
     ManualEditsPresent,
@@ -272,6 +278,12 @@ def create_app(engine=None, provider=None, embedding_provider=None, llm_provider
     async def no_enabled_queries(request, exc):
         return JSONResponse(
             status_code=422, content={"detail": str(exc), "code": "NO_ENABLED_QUERIES"}
+        )
+
+    @app.exception_handler(DescriptionRequired)
+    async def description_required(request, exc):
+        return JSONResponse(
+            status_code=422, content={"detail": str(exc), "code": "DESCRIPTION_REQUIRED"}
         )
 
     @app.exception_handler(ManualEditsPresent)

@@ -64,6 +64,7 @@ def test_acc_38_mvp_scenario(tmp_path):
         # Steps 1-2: the user creates a project and enters a research description.
         page.goto(base + "/projects/new")
         page.get_by_label("Project title").fill("LLMs in SE")
+        page.locator(".project-discovery-settings summary").click()
         page.get_by_label("Research description").fill(
             "Large language models in software engineering"
         )
@@ -72,6 +73,7 @@ def test_acc_38_mvp_scenario(tmp_path):
         expect(page).to_have_url(re.compile(r"/projects/[0-9a-f-]{36}$"))
 
         # Step 3: the backend generates short search queries from the description.
+        page.get_by_role("button", name="Discover papers", exact=True).click()
         page.get_by_role("button", name="Find papers", exact=True).click()
         expect(page.locator(".generated-queries li")).to_have_count(2, timeout=15_000)
         expect(page.locator(".generated-queries")).to_contain_text("llm code generation")

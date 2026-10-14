@@ -43,6 +43,7 @@ def browser_app(tmp_path):
         project = page.request.post(base + "/api/projects", data=DATA).json()
         url = base + "/api/projects/" + project["id"]
         page.goto(base + "/projects/" + project["id"])
+        page.get_by_role("button", name="Discover papers", exact=True).click()
         yield page, url, gate, embedder, llm
         gate.set()
     engine.dispose()
@@ -79,6 +80,7 @@ def test_empty_categories_filters_uncategorized_and_retry(browser_app):
         if paper["clusterId"] == empty["clusterId"]:
             page.request.patch(url + "/papers/" + paper["id"], data={"clusterId": None})
     page.reload()
+    page.get_by_role("button", name="Discover papers", exact=True).click()
     page.get_by_role("button", name="Open access only", exact=True).click()
     tab = page.locator(".cluster-tab").filter(has_text=empty["name"])
     expect(tab).to_be_visible()
@@ -117,12 +119,50 @@ def test_settings_and_project_references(browser_app):
     page.locator('.reference-form [name="authors"]').fill("A. Researcher\nB. Researcher")
     page.get_by_role("button", name="Save reference").click()
     expect(page.locator(".reference-row")).to_contain_text("My draft paper")
-    page.get_by_role("button", name="Overview").click()
+    page.get_by_role("button", name="Discover papers").click()
     page.get_by_role("button", name="Find papers", exact=True).click()
     expect(page.locator(".paper-row")).to_have_count(15)
     page.locator(".paper-row .card-save").first.click()
     page.get_by_role("button", name="References", exact=True).click()
     expect(page.locator(".reference-row")).to_have_count(2)
+
+
+def test_title_only_project_opens_on_references_and_can_discover_later(browser_app):
+    page, url, _, _, _ = browser_app
+    base = url.split("/api/projects/")[0]
+    project = page.request.post(base + "/api/projects", data={"title": "My library"}).json()
+    project_url = base + "/projects/" + project["id"]
+    page.goto(project_url)
+    expect(page.get_by_role("button", name="References", exact=True)).to_have_class(
+        re.compile(r"selected-tab")
+    )
+    expect(page.get_by_role("heading", name="Reference library")).to_be_visible()
+    expect(page.get_by_role("button", name="Find papers", exact=True)).to_be_hidden()
+    expect(page.get_by_role("button", name="Delete project", exact=True)).to_be_visible()
+    page.get_by_role("button", name="Add reference").click()
+    page.locator('.reference-form [name="title"]').fill("Needed work")
+    page.get_by_role("button", name="Save reference").click()
+    expect(page.locator(".reference-row")).to_contain_text("Needed work")
+    page.get_by_role("button", name="Discover papers", exact=True).click()
+    expect(page.get_by_role("heading", name="Set up paper discovery")).to_be_visible()
+    page.get_by_role("link", name="Edit project").last.click()
+    expect(page.locator("#researchQuestion")).to_have_count(1)
+    page.locator(".project-discovery-settings summary").click()
+    page.locator("#researchQuestion").fill("Needed work")
+    page.get_by_role("button", name="Save project").click()
+    expect(page.get_by_role("heading", name="Reference library")).to_be_visible()
+    page.get_by_role("button", name="Discover papers", exact=True).click()
+    expect(page.get_by_role("button", name="Find papers", exact=True)).to_be_visible()
+    page.get_by_role("button", name="Find papers", exact=True).click()
+    expect(page.locator(".paper-row")).to_have_count(15)
+    assert page.request.put(
+        base + "/api/projects/" + project["id"], data={"title": "My library"}
+    ).ok
+    page.reload()
+    page.get_by_role("button", name="Discover papers", exact=True).click()
+    expect(page.get_by_role("heading", name="Set up paper discovery")).to_be_visible()
+    expect(page.locator(".paper-row")).to_have_count(15)
+    expect(page.get_by_role("button", name="Find papers", exact=True)).to_be_hidden()
 
 
 def test_settings_shows_provider_configuration_without_credentials(browser_app):
@@ -204,6 +244,7 @@ def test_selected_subtopic_survives_a_refresh(browser_app):
     page, url, _, _, _ = browser_app
     page.request.post(url + "/search")
     page.reload()
+    page.get_by_role("button", name="Discover papers", exact=True).click()
     tab = page.locator(".cluster-tab").nth(1)
     tab.click()
     expect(page.locator(".subtopic-menu summary")).to_be_visible()
@@ -232,6 +273,7 @@ def test_papers_can_be_sorted_across_tabs_and_refreshes(browser_app):
 
     page.route("**/papers", add_sort_values)
     page.reload()
+    page.get_by_role("button", name="Discover papers", exact=True).click()
     sort = page.get_by_label("Sort papers")
     titles = page.locator(".paper-list .paper-row h3")
     expect(page.locator(".paper-results-heading h3")).to_have_text("All papers")
@@ -275,7 +317,7 @@ def test_reference_reading_workflow(browser_app):
     expect(rows).to_have_count(1)
     expect(rows.first).to_contain_text("First paper")
     expect(page.get_by_role("heading", name="Saved references (1 of 2)")).to_be_visible()
-    page.get_by_role("button", name="Overview", exact=True).click()
+    page.get_by_role("button", name="Discover papers", exact=True).click()
     page.get_by_role("button", name="References", exact=True).click()
     expect(filter_control).to_have_value("READ")
     page.get_by_role("button", name="Add reference", exact=True).click()
@@ -386,7 +428,7 @@ def test_reference_notes_editor_keeps_drafts_and_saves(browser_app):
     expect(alpha).to_have_count(0)
     page.get_by_label("Search library").fill("")
     expect(notes).to_have_value("Line one\nLine two")
-    page.get_by_role("button", name="Overview", exact=True).click()
+    page.get_by_role("button", name="Discover papers", exact=True).click()
     page.get_by_role("button", name="References", exact=True).click()
     alpha.get_by_label("Reading status", exact=True).select_option("READING")
     expect(alpha.get_by_label("Reading status", exact=True)).to_be_enabled()
@@ -490,6 +532,7 @@ def test_search_disclosure_preserves_choice_and_exposes_progress(browser_app):
     page.get_by_role("button", name="Find papers", exact=True).click()
     expect(page.locator(".paper-row")).to_have_count(15)
     page.reload()
+    page.get_by_role("button", name="Discover papers", exact=True).click()
     expect(page.locator(".paper-row")).to_have_count(15)
     expect(disclosure).not_to_have_attribute("open", "")
     gate.clear()
@@ -515,6 +558,7 @@ def test_failed_search_notice_visible_with_configuration_closed(browser_app):
     page, url, _, _, _ = browser_app
     page.request.post(url + "/search")
     page.reload()
+    page.get_by_role("button", name="Discover papers", exact=True).click()
     expect(page.locator(".paper-row")).to_have_count(15)
     history = page.request.get(url + "/searches").json()
     history.insert(
@@ -528,6 +572,7 @@ def test_failed_search_notice_visible_with_configuration_closed(browser_app):
     )
     page.route("**/searches", lambda route: route.fulfill(json=history))
     page.reload()
+    page.get_by_role("button", name="Discover papers", exact=True).click()
     expect(page.locator(".search-disclosure")).not_to_have_attribute("open", "")
     expect(page.get_by_text("Search provider unavailable.", exact=True)).to_be_visible()
     expect(
@@ -542,6 +587,7 @@ def test_manual_edit_confirmation_visible_with_search_closed(browser_app):
     paper = page.request.get(url + "/papers").json()[0]
     page.request.patch(url + "/papers/" + paper["id"], data={"isRelevant": False})
     page.reload()
+    page.get_by_role("button", name="Discover papers", exact=True).click()
     expect(page.locator(".paper-row")).to_have_count(14)
     page.get_by_role("button", name="Find papers", exact=True).click()
     expect(page.get_by_role("button", name="Run anyway")).to_be_visible()
@@ -587,6 +633,7 @@ def test_failed_source_warning(browser_app):
 
     page.route("**/searches", with_failed_source)
     page.reload()
+    page.get_by_role("button", name="Discover papers", exact=True).click()
     expect(
         page.get_by_text(
             "Scopus was unavailable for one or more queries; results may be incomplete."
@@ -607,6 +654,7 @@ def test_failed_source_warning_when_every_source_failed_somewhere(browser_app):
 
     page.route("**/searches", with_failed_sources)
     page.reload()
+    page.get_by_role("button", name="Discover papers", exact=True).click()
     expect(
         page.get_by_text(
             "OpenAlex and Scopus were unavailable for one or more queries; "
@@ -620,5 +668,6 @@ def test_no_failed_source_warning_by_default(browser_app):
     page, url, _, _, _ = browser_app
     page.request.post(url + "/search")
     page.reload()
+    page.get_by_role("button", name="Discover papers", exact=True).click()
     expect(page.locator(".paper-row").first).to_be_visible()
     expect(page.get_by_text("was unavailable", exact=False)).to_have_count(0)
