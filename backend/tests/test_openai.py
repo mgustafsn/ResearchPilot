@@ -158,6 +158,23 @@ def _completion(obj):
     return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(obj)}}]})
 
 
+def test_abstract_summary_uses_structured_response_and_source_text():
+    def handler(request):
+        body = json.loads(request.content)
+        assert body["response_format"]["type"] == "json_schema"
+        assert body["response_format"]["json_schema"]["name"] == "abstract_summary"
+        assert "Provider abstract" in body["messages"][-1]["content"]
+        return _completion({"summary": "  A concise summary.  "})
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await OpenAILlmProvider(client).summarize_abstract(
+                "Paper title", "Provider abstract"
+            )
+
+    assert asyncio.run(run()).summary == "A concise summary."
+
+
 def test_names_a_cluster_with_structured_output():
     def handler(request):
         body = json.loads(request.content)

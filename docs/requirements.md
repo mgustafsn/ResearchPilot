@@ -6,6 +6,10 @@ ResearchPilot is a web application for collecting and managing project reference
 
 A user creates a project with a title and adds citations manually. Each project opens on
 its reference library, with notes, reading status, citation tracking, and external links.
+Entering a DOI can fill citation fields from a scholarly metadata provider; the user
+reviews and can edit them before saving. Lookup never saves a reference automatically.
+If the provider supplies an abstract, an optional structured LLM call can write a
+summary into editable notes. The LLM never supplies citation metadata.
 Paper discovery is optional: after adding a research description, the user can search
 trusted scholarly sources, rank and group the results, and save selected papers as
 references. Discovery results do not replace the reference library.

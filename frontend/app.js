@@ -425,20 +425,87 @@ function renderReferenceLibrary(project, container) {
   formBox.hidden = true;
   const list = element('section', '', container, 'panel reference-list');
   let editing = null;
+  let lookupVersion = 0;
   const form = element('form', '', formBox, 'reference-form');
   const fields = [
     ['title', 'Title', 'text'], ['authors', 'Authors (one per line)', 'textarea'],
     ['year', 'Year', 'number'], ['venue', 'Journal or venue', 'text'],
     ['doi', 'DOI', 'text'], ['url', 'Link', 'url'], ['notes', 'Notes', 'textarea'],
   ];
+  let doiWrap;
   for (const [name, labelText, type] of fields) {
-    const label = element('label', labelText, form);
+    const parent = name === 'doi' ? (doiWrap = element('div', '', form, 'reference-doi-field')) : form;
+    const label = element('label', labelText, parent);
     const input = element(type === 'textarea' ? 'textarea' : 'input', '', label);
     input.name = name;
     if (type !== 'textarea') input.type = type;
     if (name === 'title') input.required = true;
     if (name === 'year') { input.min = '1'; input.max = '9999'; }
   }
+  const lookupButton = element('button', 'Look up DOI', doiWrap, 'secondary');
+  lookupButton.type = 'button';
+  const lookupStatus = element('p', '', doiWrap, 'field-help reference-lookup-status');
+  lookupStatus.setAttribute('role', 'status');
+  const summaryButton = element('button', 'Write AI summary from abstract', doiWrap, 'secondary');
+  summaryButton.type = 'button';
+  summaryButton.hidden = true;
+  const summaryStatus = element('p', '', doiWrap, 'field-help reference-lookup-status');
+  summaryStatus.setAttribute('role', 'status');
+  form.elements.doi.addEventListener('input', () => {
+    ++lookupVersion;
+    lookupButton.disabled = false;
+    lookupButton.textContent = 'Look up DOI';
+    lookupStatus.textContent = '';
+    summaryButton.hidden = true;
+    summaryStatus.textContent = '';
+  });
+  lookupButton.addEventListener('click', async () => {
+    const doi = form.elements.doi.value.trim();
+    if (!doi) { lookupStatus.textContent = 'Enter a DOI first.'; return; }
+    const version = ++lookupVersion;
+    lookupButton.disabled = true;
+    lookupButton.textContent = 'Looking up…';
+    lookupStatus.textContent = 'Looking up DOI metadata…';
+    try {
+      const draft = await api(`${projectPath}/lookup?doi=${encodeURIComponent(doi)}`);
+      if (version !== lookupVersion || doi !== form.elements.doi.value.trim()) return;
+      for (const name of ['title', 'year', 'venue', 'url', 'doi']) {
+        if (draft[name] != null) form.elements[name].value = draft[name];
+      }
+      if (draft.authors.length) form.elements.authors.value = draft.authors.join('\n');
+      status.value = 'Published';
+      lookupStatus.textContent = `Filled from ${draft.source}. Review the details, then save.`;
+      summaryButton.hidden = !draft.abstract || Boolean(editing);
+      summaryStatus.textContent = '';
+    } catch (error) {
+      if (version === lookupVersion) lookupStatus.textContent = error.message;
+    } finally {
+      if (version === lookupVersion) {
+        lookupButton.disabled = false;
+        lookupButton.textContent = 'Look up DOI';
+      }
+    }
+  });
+  summaryButton.addEventListener('click', async () => {
+    const doi = form.elements.doi.value.trim();
+    const version = lookupVersion;
+    summaryButton.disabled = true;
+    summaryStatus.textContent = 'Writing summary from the provider abstract…';
+    try {
+      const result = await api(`${projectPath}/summary`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({doi}),
+      });
+      if (version !== lookupVersion || doi !== form.elements.doi.value.trim()) return;
+      const notes = form.elements.notes;
+      notes.value = notes.value.trim() ? `${notes.value.trim()}\n\n${result.summary}` : result.summary;
+      summaryStatus.textContent = 'AI summary added to Notes. Review and edit it before saving.';
+    } catch (error) {
+      if (version === lookupVersion) summaryStatus.textContent = error.message;
+    } finally {
+      if (version === lookupVersion) summaryButton.disabled = false;
+    }
+  });
   const statusLabel = element('label', 'Publication status', form);
   const status = element('select', '', statusLabel);
   status.name = 'status';
@@ -447,11 +514,18 @@ function renderReferenceLibrary(project, container) {
   const buttons = element('div', '', form, 'form-actions');
   element('button', 'Save reference', buttons);
   element('button', 'Cancel', buttons, 'secondary').addEventListener('click', event => {
-    event.preventDefault(); formBox.hidden = true;
+    event.preventDefault(); ++lookupVersion; formBox.hidden = true;
   });
   function openForm(reference = null) {
+    ++lookupVersion;
     editing = reference;
     form.reset();
+    lookupStatus.textContent = '';
+    lookupButton.disabled = false;
+    lookupButton.textContent = 'Look up DOI';
+    summaryButton.hidden = true;
+    summaryButton.disabled = false;
+    summaryStatus.textContent = '';
     for (const [name] of fields) {
       form.elements[name].value = reference?.[name] ?? '';
     }
@@ -480,6 +554,7 @@ function renderReferenceLibrary(project, container) {
         method: editing ? 'PATCH' : 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(data),
       });
+      ++lookupVersion;
       formBox.hidden = true;
       await refresh();
     } catch (error) { showError(error); }

@@ -283,6 +283,8 @@ textarea { resize: vertical; min-height: 120px; }
 .reference-form input, .reference-form textarea, .reference-form select { margin-top: 5px; }
 .reference-form textarea { min-height: 76px; }
 .reference-form .form-actions { grid-column: 1 / -1; }
+.reference-doi-field button { margin-top: 8px; padding: 7px 11px; font-size: 12px; }
+.reference-lookup-status { min-height: 1.2em; margin: 6px 0 0; }
 .reference-row { padding: 18px 0; border-bottom: 1px solid var(--border); }
 .reference-row:last-child { border-bottom: 0; }
 .reference-row h3 { overflow-wrap: anywhere; }

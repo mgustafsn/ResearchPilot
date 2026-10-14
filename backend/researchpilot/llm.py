@@ -93,6 +93,15 @@ class QueryExpansion(BaseModel):
         return cleaned[:QUERIES_MAX]
 
 
+class AbstractSummary(BaseModel):
+    summary: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("summary", mode="before")
+    @classmethod
+    def _clean(cls, value):
+        return " ".join(value.split()) if isinstance(value, str) else value
+
+
 class LlmProvider(Protocol):
     name: str
     model: str
@@ -102,3 +111,5 @@ class LlmProvider(Protocol):
     async def name_cluster(self, question: str, papers: list[PaperBrief]) -> ClusterNaming: ...
 
     async def explain_paper(self, question: str, subtopic: str, paper: PaperBrief) -> str: ...
+
+    async def summarize_abstract(self, title: str | None, abstract: str) -> AbstractSummary: ...

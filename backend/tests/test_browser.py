@@ -105,6 +105,47 @@ def test_empty_categories_filters_uncategorized_and_retry(browser_app):
     expect(page.locator(".drawer-panel")).to_contain_text("fits Topic")
 
 
+def test_doi_lookup_fills_editable_reference_draft(browser_app):
+    page, url, *_ = browser_app
+    page.route(
+        "**/references/lookup?*",
+        lambda route: route.fulfill(
+            status=200,
+            json={
+                "source": "Crossref",
+                "doi": "10.1234/example",
+                "title": "Source title",
+                "authors": ["A. Author"],
+                "year": 2024,
+                "venue": "Journal",
+                "url": "https://doi.org/10.1234/example",
+                "abstract": "Source abstract",
+            },
+        ),
+    )
+    page.route(
+        "**/references/summary",
+        lambda route: route.fulfill(status=200, json={"summary": "A grounded summary."}),
+    )
+    page.get_by_role("button", name="References", exact=True).click()
+    page.get_by_role("button", name="Add reference").click()
+    page.locator('.reference-form [name="doi"]').fill("10.1234/example")
+    page.get_by_role("button", name="Look up DOI").click()
+    expect(page.locator('.reference-form [name="title"]')).to_have_value("Source title")
+    expect(page.locator('.reference-form [name="authors"]')).to_have_value("A. Author")
+    expect(page.locator(".reference-lookup-status").first).to_contain_text("Crossref")
+    assert page.request.get(url + "/references").json() == []
+    page.get_by_role("button", name="Write AI summary from abstract").click()
+    expect(page.locator('.reference-form [name="notes"]')).to_have_value("A grounded summary.")
+    page.locator('.reference-form [name="title"]').fill("Corrected title")
+    page.get_by_role("button", name="Save reference").click()
+    expect(page.locator(".reference-row")).to_contain_text("Corrected title")
+    stored = page.request.get(url + "/references").json()
+    assert stored[0]["title"] == "Corrected title"
+    assert stored[0]["doi"] == "10.1234/example"
+    assert stored[0]["notes"] == "A grounded summary."
+
+
 def test_settings_and_project_references(browser_app):
     page, url, _, _, _ = browser_app
     page.goto(page.url.split("/projects/")[0] + "/settings")

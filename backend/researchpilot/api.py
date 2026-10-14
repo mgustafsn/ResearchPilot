@@ -9,7 +9,7 @@ from uuid import UUID
 
 import httpx
 
-from fastapi import BackgroundTasks, Depends, FastAPI, Request, Response
+from fastapi import BackgroundTasks, Depends, FastAPI, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import create_engine
@@ -33,6 +33,14 @@ from .domain import (
     SubtopicMerge,
     SubtopicPatch,
 )
+from .doi_lookup import (
+    DoiLookupService,
+    DoiLookupUnavailable,
+    DoiNotFound,
+    DoiSummaryInput,
+    InvalidDoi,
+    NoAbstract,
+)
 from .persistence import ProjectRepository
 from .service import ProjectNotFound, ProjectService
 from .papers import ProjectPaper, ProviderError, SearchQuery, SearchRun, Subtopic
@@ -40,6 +48,7 @@ from .providers.openai import OpenAIEmbeddingProvider, OpenAILlmProvider
 from .providers.openalex import OpenAlexProvider
 from .providers.multi import MultiSourceProvider
 from .providers.scopus import ScopusProvider
+from .providers.doi import CrossrefDoiPaperProvider, DataCiteDoiPaperProvider
 from .search import (
     DescriptionRequired,
     DuplicateQuery,
@@ -71,7 +80,9 @@ SOURCES = {
 }
 
 
-def create_app(engine=None, provider=None, embedding_provider=None, llm_provider=None):
+def create_app(
+    engine=None, provider=None, embedding_provider=None, llm_provider=None, doi_providers=None
+):
     password = os.environ.get("RESEARCHPILOT_PASSWORD", "")
     if os.environ.get("DYNO") and len(password) < 16:
         raise RuntimeError("Set RESEARCHPILOT_PASSWORD to at least 16 characters on Heroku")
@@ -86,6 +97,21 @@ def create_app(engine=None, provider=None, embedding_provider=None, llm_provider
             openai_client = await stack.enter_async_context(
                 httpx.AsyncClient(headers=openai_headers(), timeout=30.0)
             )
+            if doi_providers is None:
+                doi_client = await stack.enter_async_context(
+                    httpx.AsyncClient(
+                        headers={
+                            "User-Agent": "ResearchPilot/0.25.0",
+                            "Accept": "application/json",
+                        },
+                        timeout=8.0,
+                    )
+                )
+                app.state.doi_lookup = DoiLookupService(
+                    [CrossrefDoiPaperProvider(doi_client), DataCiteDoiPaperProvider(doi_client)]
+                )
+            else:
+                app.state.doi_lookup = DoiLookupService(doi_providers)
             # One client per source: each sends its own credentials.
             sources = []
             for name in names:
@@ -102,6 +128,9 @@ def create_app(engine=None, provider=None, embedding_provider=None, llm_provider
                 selected_provider,
                 embedding_provider or OpenAIEmbeddingProvider(openai_client),
                 llm_provider or OpenAILlmProvider(openai_client),
+            )
+            app.state.llm_configured = bool(
+                llm_provider or os.environ.get("OPENAI_API_KEY", "").strip()
             )
             try:
                 yield
@@ -165,6 +194,24 @@ def create_app(engine=None, provider=None, embedding_provider=None, llm_provider
     async def reference_validation(request, exc):
         return JSONResponse(status_code=422, content={"detail": str(exc)})
 
+    @app.exception_handler(InvalidDoi)
+    async def invalid_doi(request, exc):
+        return JSONResponse(status_code=422, content={"detail": str(exc), "code": "INVALID_DOI"})
+
+    @app.exception_handler(DoiNotFound)
+    async def doi_not_found(request, exc):
+        return JSONResponse(status_code=404, content={"detail": str(exc), "code": "DOI_NOT_FOUND"})
+
+    @app.exception_handler(DoiLookupUnavailable)
+    async def doi_lookup_unavailable(request, exc):
+        return JSONResponse(
+            status_code=503, content={"detail": str(exc), "code": "DOI_LOOKUP_UNAVAILABLE"}
+        )
+
+    @app.exception_handler(NoAbstract)
+    async def no_abstract(request, exc):
+        return JSONResponse(status_code=422, content={"detail": str(exc), "code": "NO_ABSTRACT"})
+
     @app.exception_handler(IntegrityError)
     async def reference_integrity(request, exc):
         return JSONResponse(
@@ -225,6 +272,32 @@ def create_app(engine=None, provider=None, embedding_provider=None, llm_provider
     @app.get("/api/projects/{project_id}/references")
     def list_references(project_id: UUID, svc=Depends(references, scope="function")):
         return svc.list(project_id)
+
+    @app.get("/api/projects/{project_id}/references/lookup")
+    async def lookup_reference(
+        project_id: UUID,
+        doi: str = Query(min_length=1, max_length=300),
+        svc=Depends(references, scope="function"),
+    ):
+        svc._project(project_id)
+        return await app.state.doi_lookup.lookup(doi)
+
+    @app.post("/api/projects/{project_id}/references/summary")
+    async def summarize_reference(
+        project_id: UUID,
+        data: DoiSummaryInput,
+        svc=Depends(references, scope="function"),
+    ):
+        svc._project(project_id)
+        if not app.state.llm_configured:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "detail": "Set OPENAI_API_KEY to write an AI summary.",
+                    "code": "LLM_UNAVAILABLE",
+                },
+            )
+        return await app.state.doi_lookup.summarize(data.doi, app.state.search.llm_provider)
 
     @app.post("/api/projects/{project_id}/references", status_code=201)
     def add_reference(

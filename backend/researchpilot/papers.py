@@ -159,3 +159,24 @@ class PaperProvider(Protocol):
     name: str
 
     async def search(self, parameters: SearchParameters) -> SearchResult: ...
+
+
+class DoiPaperMetadata(BaseModel):
+    """Provider-supplied fields suitable for a reviewable reference draft."""
+
+    source: str
+    doi: str
+    title: str | None = None
+    authors: list[str] = Field(default_factory=list)
+    year: int | None = None
+    venue: str | None = None
+    url: str
+    abstract: str | None = None
+
+
+class DoiPaperProvider(Protocol):
+    """PaperProvider interface for exact DOI metadata retrieval."""
+
+    name: str
+
+    async def lookup_doi(self, doi: str) -> DoiPaperMetadata | None: ...

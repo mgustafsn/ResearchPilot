@@ -2,7 +2,11 @@
 
 Build a reference library for each research project. Add citations and links manually,
 track reading and citation status, and keep notes. Projects need only a title. An optional
-**Discover papers** tab searches OpenAlex or Scopus and lets you save selected results
+DOI lookup fills citation fields from Crossref or DataCite for review before saving.
+You can edit any field or add a reference without a DOI. Lookup does not require an OpenAI key.
+If the provider supplies an abstract and an OpenAI key is configured, you can request
+an optional AI summary; it is added to editable notes only after you review and save.
+The optional **Discover papers** tab searches OpenAlex or Scopus and lets you save selected results
 to the library; discovery needs a research description and a configured OpenAI key.
 Python 3.12+, FastAPI, SQLAlchemy, PostgreSQL, NumPy, OpenAI (embeddings + a chat
 model), and a same-origin vanilla JavaScript frontend.

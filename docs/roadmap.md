@@ -45,6 +45,7 @@ sequence number. Each feature gets a branch `feat/<name>`, a note in
 | Citation tracking | Mark references as cited, with optional unique citation numbers that can be restored | [citation-tracking](features/citation-tracking.md) |
 | Reference notes | Inline notes editor with Save/Cancel, a character counter, and drafts that survive rerenders | [reference-notes](features/reference-notes.md) |
 | Library first | References open by default; title-only projects can collect citations before configuring optional discovery | [library-first](features/library-first.md) |
+| DOI lookup | Fill an editable reference draft from Crossref or DataCite metadata by DOI; optionally summarize a provider abstract into editable notes | [doi-lookup](features/doi-lookup.md) |
 
 ### Interface
 
