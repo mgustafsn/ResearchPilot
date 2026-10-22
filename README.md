@@ -1,4 +1,4 @@
-# ResearchPilot
+# ResearchPilot (Course project SWCON)
 
 ResearchPilot is a web application for managing references by research project. Add
 citations manually or look them up by DOI, track reading and citation status, and keep
